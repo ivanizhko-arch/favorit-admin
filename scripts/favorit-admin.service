@@ -1,0 +1,17 @@
+[Unit]
+Description=Favorit admin panel (изолированный сервис)
+After=network.target favorit.service
+
+[Service]
+Type=simple
+User=favorit
+Group=favorit
+WorkingDirectory=/home/favorit/favorit-admin
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/home/favorit/favorit-admin/.env
+ExecStart=/home/favorit/favorit-admin/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

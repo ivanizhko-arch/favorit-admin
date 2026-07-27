@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Фаворит · Админ-панель</title>
+<style>
+  :root{--gold:#d7ae5e;--gold-dk:#bd9445;--ink:#0e0f14;--ink2:#191b22;--line:#2a2c35;--muted:#9aa0ac;--ok:#4bbd86;--danger:#e0736f;--bg:#0a0b0f}
+  *{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif}
+  body{background:radial-gradient(1200px 700px at 50% -10%,#23252d,#101116 55%,#0a0b0f);color:#e8ebf1;min-height:100vh}
+  .wrap{max-width:1080px;margin:0 auto;padding:26px 20px 60px}
+  .top{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:22px}
+  .wm{font-weight:800;letter-spacing:.16em;color:var(--gold);font-size:20px}
+  .wm small{display:block;color:var(--muted);font-size:11px;letter-spacing:.04em;margin-top:4px}
+  button{cursor:pointer;border:none;border-radius:10px;font-weight:700;font-size:13px}
+  .btn-gold{background:linear-gradient(180deg,#e7c884,#bd9445);color:#1a1305;padding:11px 16px}
+  .btn-ghost{background:#1a1c24;border:1px solid var(--line);color:#c8ccd4;padding:8px 12px}
+  .btn-danger{background:transparent;border:1px solid rgba(224,115,111,.5);color:var(--danger);padding:8px 12px}
+  .btn-warn{background:transparent;border:1px solid rgba(215,174,94,.5);color:var(--gold);padding:8px 12px}
+
+  /* Логин */
+  #login{max-width:360px;margin:12vh auto 0;background:var(--ink2);border:1px solid var(--line);border-radius:18px;padding:26px;text-align:center}
+  #login h1{font-size:18px;color:var(--gold);letter-spacing:.14em;margin-bottom:6px}
+  #login p{color:var(--muted);font-size:12.5px;margin-bottom:20px}
+  input{width:100%;background:#15171e;border:1px solid var(--line);border-radius:12px;padding:13px 14px;color:#fff;font-size:15px;outline:none;margin-bottom:12px}
+  input:focus{border-color:var(--gold)}
+
+  /* Дашборд */
+  .hidden{display:none}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
+  .tile{background:var(--ink2);border:1px solid var(--line);border-radius:16px;padding:16px}
+  .tile b{display:block;font-size:26px;color:var(--gold);font-weight:800}
+  .tile span{font-size:12px;color:var(--muted)}
+  .searchbar{display:flex;gap:10px;margin-bottom:14px}
+  .searchbar input{margin:0}
+  table{width:100%;border-collapse:collapse;background:var(--ink2);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  th,td{text-align:left;padding:12px 14px;font-size:13px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  tr:last-child td{border-bottom:none}
+  .badge{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:20px}
+  .b-ok{background:rgba(75,189,134,.15);color:var(--ok)}
+  .b-blocked{background:rgba(224,115,111,.15);color:var(--danger)}
+  .row-actions{display:flex;gap:6px;flex-wrap:wrap}
+  .muted{color:var(--muted);font-size:12px}
+  .empty{text-align:center;color:var(--muted);padding:30px;font-size:13px}
+  .err{color:var(--danger);font-size:12.5px;margin-bottom:10px;min-height:16px}
+  .section-title{font-size:15px;font-weight:800;color:var(--gold);margin:30px 0 12px}
+  .wl-add{display:flex;gap:10px;margin-bottom:12px}
+  .wl-add input{margin:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ЛОГИН -->
+  <div id="login">
+    <h1>ФАВОРИТ</h1>
+    <p>Админ-панель приложения</p>
+    <div class="err" id="login-err"></div>
+    <input type="password" id="pwd" placeholder="Пароль администратора" onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="btn-gold" style="width:100%" onclick="doLogin()">Войти</button>
+  </div>
+
+  <!-- ДАШБОРД -->
+  <div id="dash" class="hidden">
+    <div class="top">
+      <div class="wm">ФАВОРИТ<small>админ-панель приложения</small></div>
+      <button class="btn-ghost" onclick="logout()">Выйти</button>
+    </div>
+
+    <div class="tiles" id="tiles"></div>
+
+    <div class="searchbar">
+      <input id="q" placeholder="Поиск: имя, телефон или e-mail" oninput="debouncedLoad()">
+      <button class="btn-ghost" onclick="loadUsers()">Обновить</button>
+    </div>
+
+    <table>
+      <thead><tr><th>Пользователь</th><th>Телефон</th><th>Последний вход</th><th>Статус</th><th>Действия</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+
+    <!-- КОЛЛЕКТОРЫ -->
+    <div class="section-title">🛡 База номеров коллекторов</div>
+    <table>
+      <thead><tr><th>Номер</th><th>Категория</th><th>Жалоб</th><th>Статус</th><th>Действия</th></tr></thead>
+      <tbody id="col-rows"></tbody>
+    </table>
+
+    <!-- NPS -->
+    <div class="section-title">⭐ NPS-оценки клиентов (после «Долги списаны»)</div>
+    <table>
+      <thead><tr><th>Клиент</th><th>Оценка</th><th>Оставил отзыв на Я.Картах</th><th>Когда</th></tr></thead>
+      <tbody id="nps-rows"></tbody>
+    </table>
+
+    <!-- БЕЛЫЙ СПИСОК -->
+    <div class="section-title">✅ Защищённые номера (белый список)</div>
+    <div class="wl-add">
+      <input id="wl-phone" placeholder="Номер (+7...)">
+      <input id="wl-label" placeholder="Кто это (напр. Суд, ФССП, наш номер)">
+      <button class="btn-gold" onclick="addWhitelist()">Добавить</button>
+    </div>
+    <table>
+      <thead><tr><th>Номер</th><th>Метка</th><th>Действия</th></tr></thead>
+      <tbody id="wl-rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  const API = '/admin/api';
+  let token = localStorage.getItem('favorit_admin_token') || '';
+
+  function headers(){ return {'Content-Type':'application/json','Authorization':'Bearer '+token}; }
+
+  async function doLogin(){
+    const pwd = document.getElementById('pwd').value;
+    const err = document.getElementById('login-err'); err.textContent='';
+    try{
+      const r = await fetch(API+'/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pwd})});
+      if(!r.ok){ err.textContent='Неверный пароль'; return; }
+      token = (await r.json()).access_token;
+      localStorage.setItem('favorit_admin_token', token);
+      showDash();
+    }catch(e){ err.textContent='Сервер недоступен'; }
+  }
+
+  function logout(){ token=''; localStorage.removeItem('favorit_admin_token'); location.reload(); }
+
+  function showDash(){
+    document.getElementById('login').classList.add('hidden');
+    document.getElementById('dash').classList.remove('hidden');
+    loadStats(); loadUsers(); loadCollectors(); loadWhitelist(); loadNps();
+  }
+
+  async function loadNps(){
+    const r = await fetch(API+'/nps',{headers:headers()});
+    if(r.status===401||r.status===403){ return; }
+    const list = await r.json();
+    const t = document.getElementById('nps-rows');
+    if(!list.length){
+      t.innerHTML = '<tr><td colspan="4" class="empty">Пока нет оценок. Сохраняем только 8-10 (промоутеры).</td></tr>';
+      return;
+    }
+    t.innerHTML = list.map(n => {
+      const when = (n.created_at||'').replace('T',' ').slice(0,16);
+      const review = n.left_review
+        ? '<span class="badge b-ok">Да</span>'
+        : '<span class="muted">—</span>';
+      return `<tr>
+        <td>${n.email}</td>
+        <td><span class="badge b-ok">${n.score}/10</span></td>
+        <td>${review}</td>
+        <td class="muted">${when}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  async function loadCollectors(){
+    const r = await fetch('/collectors/all',{headers:headers()});
+    if(r.status===401||r.status===403){ return; }
+    const list = await r.json();
+    const t = document.getElementById('col-rows');
+    if(!list.length){ t.innerHTML='<tr><td colspan="5" class="empty">Пока нет номеров в базе.</td></tr>'; return; }
+    t.innerHTML = list.map(n=>{
+      const badge = n.status==='confirmed'
+        ? '<span class="badge b-blocked">Заблокирован</span>'
+        : '<span class="badge b-ok">На проверке</span>';
+      return `<tr>
+        <td>+7 ${n.phone}</td><td>${n.category}</td><td>${n.reports}</td><td>${badge}</td>
+        <td><button class="btn-danger" onclick="delCollector('${n.phone}')">Удалить</button></td>
+      </tr>`;
+    }).join('');
+  }
+  async function delCollector(phone){
+    if(!confirm('Удалить номер +7 '+phone+' из базы?')) return;
+    await fetch('/collectors/'+encodeURIComponent(phone),{method:'DELETE',headers:headers()});
+    loadCollectors();
+  }
+
+  async function loadWhitelist(){
+    const r = await fetch('/collectors/whitelist',{headers:headers()});
+    if(r.status===401||r.status===403){ return; }
+    const list = await r.json();
+    const t = document.getElementById('wl-rows');
+    if(!list.length){ t.innerHTML='<tr><td colspan="3" class="empty">Белый список пуст. Добавьте ваши номера, суд, ФССП.</td></tr>'; return; }
+    t.innerHTML = list.map(w=>`<tr>
+      <td>+7 ${w.phone}</td><td>${w.label||'—'}</td>
+      <td><button class="btn-danger" onclick="delWhitelist('${w.phone}')">Убрать</button></td>
+    </tr>`).join('');
+  }
+  async function addWhitelist(){
+    const phone=document.getElementById('wl-phone').value.trim();
+    const label=document.getElementById('wl-label').value.trim();
+    if(!phone){ alert('Введите номер'); return; }
+    await fetch('/collectors/whitelist',{method:'POST',headers:headers(),body:JSON.stringify({phone,label})});
+    document.getElementById('wl-phone').value=''; document.getElementById('wl-label').value='';
+    loadWhitelist(); loadCollectors();
+  }
+  async function delWhitelist(phone){
+    await fetch('/collectors/whitelist/'+encodeURIComponent(phone),{method:'DELETE',headers:headers()});
+    loadWhitelist();
+  }
+
+  async function loadStats(){
+    const r = await fetch(API+'/stats',{headers:headers()});
+    if(r.status===401||r.status===403){ return logout(); }
+    const s = await r.json();
+    const t = [['Всего пользователей',s.total],['Активны за 7 дней',s.active_7d],['Заблокировано',s.blocked],['Всего входов',s.logins]];
+    document.getElementById('tiles').innerHTML = t.map(x=>`<div class="tile"><b>${x[1]}</b><span>${x[0]}</span></div>`).join('');
+  }
+
+  async function loadUsers(){
+    const q = document.getElementById('q').value.trim();
+    const r = await fetch(API+'/users?q='+encodeURIComponent(q),{headers:headers()});
+    if(r.status===401||r.status===403){ return logout(); }
+    const users = await r.json();
+    const rows = document.getElementById('rows');
+    if(!users.length){ rows.innerHTML = '<tr><td colspan="5" class="empty">Пока нет пользователей. Войдите в приложение под каким-нибудь e-mail — он появится здесь.</td></tr>'; return; }
+    rows.innerHTML = users.map(u=>{
+      const badge = u.blocked ? '<span class="badge b-blocked">Заблокирован</span>' : '<span class="badge b-ok">Активен</span>';
+      const name = u.name || '—';
+      const last = u.last_seen ? u.last_seen.replace('T',' ').slice(0,16) : '—';
+      const blockBtn = u.blocked
+        ? `<button class="btn-warn" onclick="block('${u.email}',false)">Разблокировать</button>`
+        : `<button class="btn-warn" onclick="block('${u.email}',true)">Заблокировать</button>`;
+      return `<tr>
+        <td><div>${name}</div><div class="muted">${u.email}</div></td>
+        <td>${u.phone||'—'}</td>
+        <td class="muted">${last}</td>
+        <td>${badge}</td>
+        <td><div class="row-actions">
+          ${blockBtn}
+          <button class="btn-ghost" onclick="reset('${u.email}')">Сбросить сессию</button>
+          <button class="btn-danger" onclick="del('${u.email}')">Удалить (152-ФЗ)</button>
+        </div></td>
+      </tr>`;
+    }).join('');
+  }
+
+  let t=null;
+  function debouncedLoad(){ clearTimeout(t); t=setTimeout(loadUsers,300); }
+
+  async function block(email,blocked){
+    await fetch(API+'/users/'+encodeURIComponent(email)+'/block',{method:'POST',headers:headers(),body:JSON.stringify({blocked})});
+    loadUsers(); loadStats();
+  }
+  async function reset(email){
+    await fetch(API+'/users/'+encodeURIComponent(email)+'/reset',{method:'POST',headers:headers()});
+    alert('Сессии сброшены — на всех устройствах потребуется вход заново.');
+  }
+  async function del(email){
+    if(!confirm('Удалить ВСЕ данные пользователя '+email+'? Это действие необратимо (152-ФЗ, право на забвение).')) return;
+    await fetch(API+'/users/'+encodeURIComponent(email),{method:'DELETE',headers:headers()});
+    loadUsers(); loadStats();
+  }
+
+  if(token) showDash();
+</script>
+</body>
+</html>
