@@ -16,5 +16,14 @@ pip install -r requirements.txt --quiet
 
 echo "▶ 3/3  restart сервиса"
 sudo systemctl restart favorit-admin
-sleep 1
-curl -sf http://127.0.0.1:8001/health && echo " ✓ admin service живой" || echo " ✗ admin service упал"
+# uvicorn'у нужно ~2 сек чтобы поднять сокет — иначе curl раньше времени
+# получит connection refused и мы решим что сервис упал (ложное тревога).
+for i in 1 2 3 4 5; do
+    sleep 1
+    if curl -sf http://127.0.0.1:8001/health >/dev/null; then
+        echo " ✓ admin service живой (проснулся за ${i} сек)"
+        exit 0
+    fi
+done
+echo " ✗ admin service не отвечает после 5 сек — проверь: sudo journalctl -u favorit-admin -n 50"
+exit 1
