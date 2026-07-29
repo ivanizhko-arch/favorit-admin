@@ -10,7 +10,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import db
+from . import db, quality
 from .admin import router as admin_router
 from .config import settings
 
@@ -19,6 +19,11 @@ logging.basicConfig(level=logging.INFO)
 # Инициализация схемы БД — идемпотентна (CREATE IF NOT EXISTS + ALTER
 # в try/except), поэтому безопасно вызывать в обоих сервисах.
 db.init()
+
+# Таблицы, принадлежащие только админ-сервису (контроль качества, рейтинг
+# менеджеров). Вынесены из db.init() намеренно: та функция — общая схема,
+# и главный сервис вызывает её же. Про эти таблицы он знать не должен.
+quality.init()
 
 app = FastAPI(
     title="Фаворит · Админ-панель",

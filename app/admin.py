@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import db
+from . import db, quality
 from .config import settings
 from .security import (
     client_ip,
@@ -98,16 +98,61 @@ def admin_stats(_: str = Depends(get_admin)):
 
 
 @router.get("/api/nps")
-def admin_nps(_: str = Depends(get_admin)):
-    """Список NPS-оценок клиентов (сохраняются только промоутеры 8-10)."""
-    return db.list_nps_scores()
+def admin_nps(
+    kind: str = "",
+    month: str = "",
+    limit: int = 50,
+    offset: int = 0,
+    _: str = Depends(get_admin),
+):
+    """Оценки клиентов вместе с менеджером и задачей контроля качества.
+
+    kind: '' | low (0-6) | neutral (7-8) | top (9-10).
+    """
+    return quality.list_scores(kind=kind, year_month=month,
+                               limit=limit, offset=offset)
 
 
 @router.get("/api/nps/trend")
 def admin_nps_trend(months: int = 6, _: str = Depends(get_admin)):
-    """Помесячный тренд. Это средняя оценка промоутеров, а не классический
-    NPS — детракторы в базу не пишутся."""
+    """Помесячный тренд. Пока основной backend не начнёт сохранять оценки
+    0-6, это средняя по промоутерам, а не классический NPS."""
     return db.nps_trend(months)
+
+
+# ---------------------------------------------------------------------------
+# Контроль качества и рейтинг менеджеров
+# ---------------------------------------------------------------------------
+@router.get("/api/quality/status")
+def quality_status(_: str = Depends(get_admin)):
+    """Состояние механики: что не разобрано, что не отправлено, всё ли настроено."""
+    return quality.status()
+
+
+@router.get("/api/quality/rating")
+def quality_rating(month: str = "", _: str = Depends(get_admin)):
+    """Рейтинг менеджеров за месяц. Пусто → текущий месяц."""
+    return quality.rating(month or quality.month_key())
+
+
+@router.post("/api/quality/sync")
+def quality_sync(_: str = Depends(get_admin)):
+    """Разобрать новые оценки и поставить задачи прямо сейчас, не дожидаясь
+    таймера. Нужно, когда контроль качества ждёт разбора конкретной жалобы."""
+    return {
+        "linked": quality.process_new_scores(),
+        "tasks": quality.create_pending_tasks(),
+    }
+
+
+@router.post("/api/quality/report/{year_month}")
+def quality_send_report(year_month: str, force: bool = False,
+                        _: str = Depends(get_admin)):
+    """Отправить месячный отчёт руководителям. Повторно — только с force=true."""
+    if len(year_month) != 7 or year_month[4] != "-":
+        raise HTTPException(status_code=400,
+                            detail="Месяц указывается как YYYY-MM")
+    return quality.send_monthly_report(year_month, force=force)
 
 
 # ---------------------------------------------------------------------------
