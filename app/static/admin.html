@@ -17,36 +17,62 @@
   .btn-ghost{background:#1a1c24;border:1px solid var(--line);color:#c8ccd4;padding:8px 12px}
   .btn-danger{background:transparent;border:1px solid rgba(224,115,111,.5);color:var(--danger);padding:8px 12px}
   .btn-warn{background:transparent;border:1px solid rgba(215,174,94,.5);color:var(--gold);padding:8px 12px}
+  button:disabled{opacity:.35;cursor:default}
 
   /* Логин */
   #login{max-width:360px;margin:12vh auto 0;background:var(--ink2);border:1px solid var(--line);border-radius:18px;padding:26px;text-align:center}
   #login h1{font-size:18px;color:var(--gold);letter-spacing:.14em;margin-bottom:6px}
   #login p{color:var(--muted);font-size:12.5px;margin-bottom:20px}
-  input{width:100%;background:#15171e;border:1px solid var(--line);border-radius:12px;padding:13px 14px;color:#fff;font-size:15px;outline:none;margin-bottom:12px}
-  input:focus{border-color:var(--gold)}
+  input,select{width:100%;background:#15171e;border:1px solid var(--line);border-radius:12px;padding:13px 14px;color:#fff;font-size:15px;outline:none;margin-bottom:12px}
+  input:focus,select:focus{border-color:var(--gold)}
+  #totp-code{letter-spacing:.4em;text-align:center;font-size:19px}
 
   /* Дашборд */
   .hidden{display:none}
-  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
+  .nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+  .nav a{text-decoration:none;background:#1a1c24;border:1px solid var(--line);color:#c8ccd4;padding:7px 13px;border-radius:20px;font-size:12.5px;font-weight:600}
+  .nav a:hover{border-color:var(--gold);color:var(--gold)}
+
+  /* KPI */
+  .kpi-group{margin-bottom:18px}
+  .kpi-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;font-weight:700}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
   .tile{background:var(--ink2);border:1px solid var(--line);border-radius:16px;padding:16px}
-  .tile b{display:block;font-size:26px;color:var(--gold);font-weight:800}
+  .tile b{display:block;font-size:26px;color:var(--gold);font-weight:800;line-height:1.15}
   .tile span{font-size:12px;color:var(--muted)}
-  .searchbar{display:flex;gap:10px;margin-bottom:14px}
-  .searchbar input{margin:0}
+  .tile .sub{display:block;font-size:11px;color:var(--muted);margin-top:5px;opacity:.8}
+
+  /* Тренд */
+  .trend{background:var(--ink2);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:22px}
+  .trend h3{font-size:13.5px;color:#e8ebf1;font-weight:700;margin-bottom:3px}
+  .trend .note{font-size:11.5px;color:var(--muted);margin-bottom:14px;line-height:1.5}
+  .trend svg{width:100%;height:150px;display:block}
+  .legend{display:flex;gap:16px;margin-top:10px;font-size:11.5px;color:var(--muted);flex-wrap:wrap}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+
+  /* Фильтры и таблицы */
+  .filters{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
+  .filters input,.filters select{margin:0;padding:9px 12px;font-size:13.5px;width:auto}
+  .filters input.grow{flex:1;min-width:200px}
   table{width:100%;border-collapse:collapse;background:var(--ink2);border:1px solid var(--line);border-radius:14px;overflow:hidden}
-  th,td{text-align:left;padding:12px 14px;font-size:13px;border-bottom:1px solid var(--line)}
+  th,td{text-align:left;padding:12px 14px;font-size:13px;border-bottom:1px solid var(--line);vertical-align:top}
   th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
   tr:last-child td{border-bottom:none}
-  .badge{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:20px}
+  .badge{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:20px;white-space:nowrap}
   .b-ok{background:rgba(75,189,134,.15);color:var(--ok)}
   .b-blocked{background:rgba(224,115,111,.15);color:var(--danger)}
+  .b-gold{background:rgba(215,174,94,.15);color:var(--gold)}
+  .b-mute{background:rgba(154,160,172,.15);color:var(--muted)}
   .row-actions{display:flex;gap:6px;flex-wrap:wrap}
   .muted{color:var(--muted);font-size:12px}
+  .mono{font-family:ui-monospace,'SF Mono',Consolas,monospace;font-size:12px}
   .empty{text-align:center;color:var(--muted);padding:30px;font-size:13px}
   .err{color:var(--danger);font-size:12.5px;margin-bottom:10px;min-height:16px}
-  .section-title{font-size:15px;font-weight:800;color:var(--gold);margin:30px 0 12px}
+  .section-title{font-size:15px;font-weight:800;color:var(--gold);margin:34px 0 12px;scroll-margin-top:16px}
+  .pager{display:flex;gap:10px;align-items:center;margin-top:12px;font-size:12.5px;color:var(--muted)}
   .wl-add{display:flex;gap:10px;margin-bottom:12px}
   .wl-add input{margin:0}
+  @media(max-width:760px){.tiles{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
 <body>
@@ -58,6 +84,11 @@
     <p>Админ-панель приложения</p>
     <div class="err" id="login-err"></div>
     <input type="password" id="pwd" placeholder="Пароль администратора" onkeydown="if(event.key==='Enter')doLogin()">
+    <div id="totp-box" class="hidden">
+      <input id="totp-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6"
+             placeholder="000000" onkeydown="if(event.key==='Enter')doLogin()">
+      <p style="margin:-4px 0 12px">Код из приложения-аутентификатора</p>
+    </div>
     <button class="btn-gold" style="width:100%" onclick="doLogin()">Войти</button>
   </div>
 
@@ -68,34 +99,102 @@
       <button class="btn-ghost" onclick="logout()">Выйти</button>
     </div>
 
-    <div class="tiles" id="tiles"></div>
+    <!-- KPI-СВОДКА -->
+    <div id="kpi"></div>
 
-    <div class="searchbar">
-      <input id="q" placeholder="Поиск: имя, телефон или e-mail" oninput="debouncedLoad()">
-      <button class="btn-ghost" onclick="loadUsers()">Обновить</button>
+    <!-- ТРЕНД NPS -->
+    <div class="trend">
+      <h3>Тренд оценок клиентов</h3>
+      <p class="note">
+        В базу сохраняются только оценки <b>8-10</b> (промоутеры) — по решению бизнеса.
+        Классический NPS (промоутеры минус детракторы) из этих данных не считается,
+        поэтому ниже — средняя оценка промоутеров и их количество по месяцам.
+      </p>
+      <div id="nps-chart"></div>
+      <div class="legend">
+        <span><i style="background:rgba(215,174,94,.45)"></i>Оценок за месяц</span>
+        <span><i style="background:#4bbd86"></i>Средняя оценка (8-10)</span>
+      </div>
     </div>
 
+    <div class="nav">
+      <a href="#s-users">Пользователи</a>
+      <a href="#s-collectors">Коллекторы</a>
+      <a href="#s-nps">NPS</a>
+      <a href="#s-whitelist">Белый список</a>
+    </div>
+
+    <!-- ПОЛЬЗОВАТЕЛИ -->
+    <div class="section-title" id="s-users">👤 Пользователи</div>
+    <div class="filters">
+      <input class="grow" id="q" placeholder="Поиск: имя, телефон или e-mail" oninput="debounce('users',loadUsers)">
+      <select id="u-status" onchange="resetPage('users');loadUsers()">
+        <option value="">Все статусы</option>
+        <option value="active">Активные</option>
+        <option value="blocked">Заблокированные</option>
+        <option value="consented">Дали согласие</option>
+        <option value="no_consent">Без согласия</option>
+      </select>
+      <select id="u-sort" onchange="resetPage('users');loadUsers()">
+        <option value="last_seen">Сначала недавние</option>
+        <option value="first_seen">Сначала новые</option>
+        <option value="email">По e-mail</option>
+        <option value="name">По имени</option>
+      </select>
+      <button class="btn-ghost" onclick="loadUsers()">Обновить</button>
+    </div>
     <table>
       <thead><tr><th>Пользователь</th><th>Телефон</th><th>Последний вход</th><th>Статус</th><th>Действия</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
+    <div class="pager">
+      <button class="btn-ghost" id="u-prev" onclick="page('users',-1);loadUsers()">← Назад</button>
+      <button class="btn-ghost" id="u-next" onclick="page('users',1);loadUsers()">Вперёд →</button>
+      <span id="u-count"></span>
+    </div>
 
     <!-- КОЛЛЕКТОРЫ -->
-    <div class="section-title">🛡 База номеров коллекторов</div>
+    <div class="section-title" id="s-collectors">🛡 База номеров коллекторов</div>
+    <div class="filters">
+      <input class="grow" id="c-q" placeholder="Поиск по номеру (+7 999... или 999...)" oninput="debounce('col',loadCollectors)">
+      <select id="c-status" onchange="resetPage('col');loadCollectors()">
+        <option value="">Все статусы</option>
+        <option value="confirmed">Заблокированные</option>
+        <option value="pending">На проверке</option>
+        <option value="rejected">Отклонённые</option>
+      </select>
+      <select id="c-category" onchange="resetPage('col');loadCollectors()">
+        <option value="">Все категории</option>
+        <option value="collector">Коллектор</option>
+        <option value="scammer">Мошенник</option>
+        <option value="spam">Спам</option>
+      </select>
+      <select id="c-sort" onchange="resetPage('col');loadCollectors()">
+        <option value="reports">По числу жалоб</option>
+        <option value="last_reported">По дате жалобы</option>
+        <option value="phone">По номеру</option>
+      </select>
+      <button class="btn-ghost" onclick="loadCollectors()">Обновить</button>
+    </div>
     <table>
-      <thead><tr><th>Номер</th><th>Категория</th><th>Жалоб</th><th>Статус</th><th>Действия</th></tr></thead>
+      <thead><tr><th>Номер</th><th>Категория</th><th>Жалоб</th><th>Последняя жалоба</th><th>Статус</th><th>Действия</th></tr></thead>
       <tbody id="col-rows"></tbody>
     </table>
+    <div class="pager">
+      <button class="btn-ghost" id="c-prev" onclick="page('col',-1);loadCollectors()">← Назад</button>
+      <button class="btn-ghost" id="c-next" onclick="page('col',1);loadCollectors()">Вперёд →</button>
+      <span id="c-count"></span>
+    </div>
 
     <!-- NPS -->
-    <div class="section-title">⭐ NPS-оценки клиентов (после «Долги списаны»)</div>
+    <div class="section-title" id="s-nps">⭐ NPS-оценки клиентов (после «Долги списаны»)</div>
     <table>
       <thead><tr><th>Клиент</th><th>Оценка</th><th>Оставил отзыв на Я.Картах</th><th>Когда</th></tr></thead>
       <tbody id="nps-rows"></tbody>
     </table>
 
     <!-- БЕЛЫЙ СПИСОК -->
-    <div class="section-title">✅ Защищённые номера (белый список)</div>
+    <div class="section-title" id="s-whitelist">✅ Защищённые номера (белый список)</div>
     <div class="wl-add">
       <input id="wl-phone" placeholder="Номер (+7...)">
       <input id="wl-label" placeholder="Кто это (напр. Суд, ФССП, наш номер)">
@@ -105,21 +204,92 @@
       <thead><tr><th>Номер</th><th>Метка</th><th>Действия</th></tr></thead>
       <tbody id="wl-rows"></tbody>
     </table>
+
   </div>
 </div>
 
 <script>
   const API = '/admin/api';
+  const PAGE = 50;
   let token = localStorage.getItem('favorit_admin_token') || '';
+  let totpRequired = false;
 
   function headers(){ return {'Content-Type':'application/json','Authorization':'Bearer '+token}; }
 
+  // Любое значение из БД (e-mail, имя, метка) попадает в innerHTML — без
+  // экранирования кавычка или <script> в имени клиента ломает разметку.
+  function esc(v){
+    return String(v == null ? '' : v).replace(/[&<>"']/g, ch => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[ch]);
+  }
+  // Для подстановки в onclick="fn('...')" — экранируем ещё и обратный слэш.
+  function jsq(v){ return esc(String(v == null ? '' : v).replace(/\\/g,'\\\\').replace(/'/g,"\\'")); }
+  function when(v){ return v ? esc(String(v).replace('T',' ').slice(0,16)) : '—'; }
+  function fmtPhone(p){ return p ? '+7 '+esc(p) : '—'; }
+
+  // ---- Пагинация ----
+  const pages = {users:0, col:0};
+  function resetPage(k){ pages[k] = 0; }
+  function page(k, delta){ pages[k] = Math.max(0, pages[k] + delta); }
+  function renderPager(k, prefix, data){
+    const from = data.total ? data.offset + 1 : 0;
+    const to = Math.min(data.offset + data.limit, data.total);
+    document.getElementById(prefix+'-count').textContent =
+      data.total ? `${from}–${to} из ${data.total}` : 'Ничего не найдено';
+    document.getElementById(prefix+'-prev').disabled = data.offset === 0;
+    document.getElementById(prefix+'-next').disabled = to >= data.total;
+  }
+
+  const timers = {};
+  function debounce(key, fn){
+    clearTimeout(timers[key]);
+    // Новый поисковый запрос всегда показываем с первой страницы, иначе
+    // после сужения фильтра можно оказаться на пустой третьей.
+    timers[key] = setTimeout(() => { resetPage(key); fn(); }, 300);
+  }
+
+  // Ошибку запроса нельзя терять молча: иначе «Заблокировать» при упавшем
+  // сервере выглядит как успешное действие.
+  window.addEventListener('unhandledrejection', e => {
+    if(e.reason && e.reason.message === 'unauthorized') return; // уже разлогинились
+    console.error(e.reason);
+    alert('Не удалось выполнить запрос: ' + (e.reason && e.reason.message || 'ошибка сети'));
+  });
+
+  // ---- Вход ----
+  async function checkAuthConfig(){
+    try{
+      const r = await fetch(API+'/auth/config');
+      totpRequired = (await r.json()).totp_required;
+    }catch(e){ totpRequired = false; }
+    document.getElementById('totp-box').classList.toggle('hidden', !totpRequired);
+  }
+
   async function doLogin(){
     const pwd = document.getElementById('pwd').value;
+    const totp = document.getElementById('totp-code').value.trim();
     const err = document.getElementById('login-err'); err.textContent='';
+    if(totpRequired && !totp){ err.textContent='Введите код из аутентификатора'; return; }
     try{
-      const r = await fetch(API+'/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pwd})});
-      if(!r.ok){ err.textContent='Неверный пароль'; return; }
+      const r = await fetch(API+'/login',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({password:pwd, totp})
+      });
+      if(!r.ok){
+        // Сервер может потребовать второй фактор, даже если конфиг ещё не
+        // подтянулся (например, 2FA включили после загрузки страницы).
+        if(r.headers.get('X-Totp-Required')){
+          totpRequired = true;
+          document.getElementById('totp-box').classList.remove('hidden');
+        }
+        let msg = 'Неверный пароль';
+        try{ msg = (await r.json()).detail || msg; }catch(e){}
+        err.textContent = msg;
+        document.getElementById('totp-code').value = '';
+        return;
+      }
       token = (await r.json()).access_token;
       localStorage.setItem('favorit_admin_token', token);
       showDash();
@@ -128,134 +298,246 @@
 
   function logout(){ token=''; localStorage.removeItem('favorit_admin_token'); location.reload(); }
 
+  // Единая обработка протухшего токена — иначе каждый загрузчик молча
+  // рисовал бы пустую таблицу вместо возврата на форму входа.
+  async function api(path, opts){
+    const r = await fetch(API+path, Object.assign({headers:headers()}, opts||{}));
+    if(r.status===401||r.status===403){ logout(); throw new Error('unauthorized'); }
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return r.json();
+  }
+
   function showDash(){
     document.getElementById('login').classList.add('hidden');
     document.getElementById('dash').classList.remove('hidden');
-    loadStats(); loadUsers(); loadCollectors(); loadWhitelist(); loadNps();
+    refreshAll();
+  }
+  function refreshAll(){
+    loadStats(); loadTrend(); loadUsers(); loadCollectors();
+    loadWhitelist(); loadNps();
   }
 
-  async function loadNps(){
-    const r = await fetch(API+'/nps',{headers:headers()});
-    if(r.status===401||r.status===403){ return; }
-    const list = await r.json();
-    const t = document.getElementById('nps-rows');
-    if(!list.length){
-      t.innerHTML = '<tr><td colspan="4" class="empty">Пока нет оценок. Сохраняем только 8-10 (промоутеры).</td></tr>';
+  // ---- KPI-сводка ----
+  async function loadStats(){
+    const s = await api('/stats');
+    const c = s.collectors || {}, n = s.nps || {};
+    const groups = [
+      ['Пользователи', [
+        ['Всего', s.total, ''],
+        ['Активны за 7 дней', s.active_7d, `за 30 дней: ${s.active_30d ?? '—'}`],
+        ['Новых за 7 дней', s.new_7d ?? 0, ''],
+        ['Заблокировано', s.blocked, `всего входов: ${s.logins}`],
+      ]],
+      ['База коллекторов', [
+        ['Заблокировано номеров', c.confirmed ?? 0, ''],
+        ['На проверке', c.pending ?? 0, ''],
+        ['Всего в базе', c.total ?? 0, ''],
+        ['Белый список', c.whitelist ?? 0, ''],
+      ]],
+      ['Оценки клиентов', [
+        ['Средняя оценка', n.count ? n.avg_score : '—', `всего оценок: ${n.count ?? 0}`],
+        ['Оценок за 30 дней', n.count_30d ?? 0, n.count_30d ? `средняя: ${n.avg_score_30d}` : ''],
+        ['Оставили отзыв', `${n.review_rate ?? 0}%`, `${n.reviews ?? 0} из ${n.count ?? 0}`],
+      ]],
+    ];
+    document.getElementById('kpi').innerHTML = groups.map(([label, tiles]) => `
+      <div class="kpi-group">
+        <div class="kpi-label">${esc(label)}</div>
+        <div class="tiles">${tiles.map(([name, value, sub]) => `
+          <div class="tile">
+            <b>${esc(value)}</b>
+            <span>${esc(name)}</span>
+            ${sub ? `<span class="sub">${esc(sub)}</span>` : ''}
+          </div>`).join('')}
+        </div>
+      </div>`).join('');
+  }
+
+  // ---- Тренд оценок (inline SVG, без внешних библиотек) ----
+  async function loadTrend(){
+    const data = await api('/nps/trend?months=6');
+    const box = document.getElementById('nps-chart');
+    if(!data.some(d => d.count)){
+      box.innerHTML = '<div class="empty">Оценок пока нет — график появится после первых ответов клиентов.</div>';
       return;
     }
-    t.innerHTML = list.map(n => {
-      const when = (n.created_at||'').replace('T',' ').slice(0,16);
-      const review = n.left_review
-        ? '<span class="badge b-ok">Да</span>'
-        : '<span class="muted">—</span>';
-      return `<tr>
-        <td>${n.email}</td>
-        <td><span class="badge b-ok">${n.score}/10</span></td>
-        <td>${review}</td>
-        <td class="muted">${when}</td>
-      </tr>`;
+    const W = 640, H = 150, padX = 34, padB = 22, padT = 10;
+    const innerW = W - padX*2, innerH = H - padB - padT;
+    const maxCount = Math.max(1, ...data.map(d => d.count));
+    const step = innerW / data.length;
+    const bw = Math.min(46, step * 0.55);
+
+    // Столбцы — количество оценок за месяц.
+    const bars = data.map((d,i) => {
+      const h = d.count / maxCount * innerH;
+      const x = padX + step*i + (step - bw)/2;
+      return `<rect x="${x.toFixed(1)}" y="${(padT+innerH-h).toFixed(1)}" width="${bw.toFixed(1)}"
+        height="${Math.max(h,0).toFixed(1)}" rx="4" fill="rgba(215,174,94,.45)"><title>${esc(d.month)}: ${d.count} оценок</title></rect>`;
     }).join('');
+
+    // Линия — средняя оценка. Шкала 8-10, месяцы без оценок разрывают линию.
+    const y = v => padT + innerH - ((Math.min(Math.max(v,8),10) - 8) / 2) * innerH;
+    const segments = [];
+    let current = [];
+    data.forEach((d,i) => {
+      if(d.count){ current.push([padX + step*i + step/2, y(d.avg_score)]); }
+      else if(current.length){ segments.push(current); current = []; }
+    });
+    if(current.length) segments.push(current);
+    const line = segments.map(seg =>
+      `<polyline fill="none" stroke="#4bbd86" stroke-width="2" stroke-linejoin="round"
+        points="${seg.map(p => p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')}"/>`).join('');
+    const dots = data.map((d,i) => d.count
+      ? `<circle cx="${(padX + step*i + step/2).toFixed(1)}" cy="${y(d.avg_score).toFixed(1)}" r="3.5"
+          fill="#4bbd86"><title>${esc(d.month)}: средняя ${d.avg_score}</title></circle>` : '').join('');
+
+    const labels = data.map((d,i) =>
+      `<text x="${(padX + step*i + step/2).toFixed(1)}" y="${H-6}" text-anchor="middle"
+        font-size="10" fill="#9aa0ac">${esc(d.month.slice(5))}.${esc(d.month.slice(2,4))}</text>`).join('');
+    const axis = [8,9,10].map(v =>
+      `<text x="${padX-8}" y="${(y(v)+3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="#9aa0ac">${v}</text>
+       <line x1="${padX}" y1="${y(v).toFixed(1)}" x2="${W-padX}" y2="${y(v).toFixed(1)}"
+         stroke="#2a2c35" stroke-width="1"/>`).join('');
+
+    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"
+      role="img" aria-label="Тренд оценок по месяцам">${axis}${bars}${line}${dots}${labels}</svg>`;
   }
 
+  // ---- Пользователи ----
+  async function loadUsers(){
+    const params = new URLSearchParams({
+      q: document.getElementById('q').value.trim(),
+      status_filter: document.getElementById('u-status').value,
+      sort: document.getElementById('u-sort').value,
+      limit: PAGE,
+      offset: pages.users * PAGE,
+    });
+    const data = await api('/users?'+params);
+    const rows = document.getElementById('rows');
+    if(!data.items.length){
+      rows.innerHTML = `<tr><td colspan="5" class="empty">${
+        data.total === 0 && !params.get('q') && !params.get('status_filter')
+          ? 'Пока нет пользователей. Войдите в приложение под каким-нибудь e-mail — он появится здесь.'
+          : 'Под фильтры никто не подходит.'}</td></tr>`;
+    } else {
+      rows.innerHTML = data.items.map(u => {
+        const badge = u.blocked ? '<span class="badge b-blocked">Заблокирован</span>'
+                                : '<span class="badge b-ok">Активен</span>';
+        const consent = u.consent_at ? '' : ' <span class="badge b-mute">нет согласия</span>';
+        const blockBtn = u.blocked
+          ? `<button class="btn-warn" onclick="block('${jsq(u.email)}',false)">Разблокировать</button>`
+          : `<button class="btn-warn" onclick="block('${jsq(u.email)}',true)">Заблокировать</button>`;
+        return `<tr>
+          <td><div>${esc(u.name || '—')}</div><div class="muted">${esc(u.email)}</div></td>
+          <td>${esc(u.phone || '—')}</td>
+          <td class="muted">${when(u.last_seen)}</td>
+          <td>${badge}${consent}</td>
+          <td><div class="row-actions">
+            ${blockBtn}
+            <button class="btn-ghost" onclick="reset('${jsq(u.email)}')">Сбросить сессию</button>
+            <button class="btn-danger" onclick="del('${jsq(u.email)}')">Удалить (152-ФЗ)</button>
+          </div></td>
+        </tr>`;
+      }).join('');
+    }
+    renderPager('users','u',data);
+  }
+
+  async function block(email,blocked){
+    await api('/users/'+encodeURIComponent(email)+'/block',
+      {method:'POST',body:JSON.stringify({blocked})});
+    loadUsers(); loadStats();
+  }
+  async function reset(email){
+    await api('/users/'+encodeURIComponent(email)+'/reset',{method:'POST'});
+    alert('Сессии сброшены — на всех устройствах потребуется вход заново.');
+  }
+  async function del(email){
+    if(!confirm('Удалить ВСЕ данные пользователя '+email+'? Это действие необратимо (152-ФЗ, право на забвение).')) return;
+    await api('/users/'+encodeURIComponent(email),{method:'DELETE'});
+    loadUsers(); loadStats();
+  }
+
+  // ---- Коллекторы ----
   async function loadCollectors(){
-    const r = await fetch('/collectors/all',{headers:headers()});
-    if(r.status===401||r.status===403){ return; }
-    const list = await r.json();
+    const params = new URLSearchParams({
+      q: document.getElementById('c-q').value.trim(),
+      status_filter: document.getElementById('c-status').value,
+      category: document.getElementById('c-category').value,
+      sort: document.getElementById('c-sort').value,
+      limit: PAGE,
+      offset: pages.col * PAGE,
+    });
+    const data = await api('/collectors?'+params);
     const t = document.getElementById('col-rows');
-    if(!list.length){ t.innerHTML='<tr><td colspan="5" class="empty">Пока нет номеров в базе.</td></tr>'; return; }
-    t.innerHTML = list.map(n=>{
-      const badge = n.status==='confirmed'
-        ? '<span class="badge b-blocked">Заблокирован</span>'
-        : '<span class="badge b-ok">На проверке</span>';
-      return `<tr>
-        <td>+7 ${n.phone}</td><td>${n.category}</td><td>${n.reports}</td><td>${badge}</td>
-        <td><button class="btn-danger" onclick="delCollector('${n.phone}')">Удалить</button></td>
-      </tr>`;
-    }).join('');
+    if(!data.items.length){
+      t.innerHTML = `<tr><td colspan="6" class="empty">${
+        data.total === 0 ? 'Пока нет номеров в базе.' : 'Под фильтры ничего не подходит.'}</td></tr>`;
+    } else {
+      const badges = {
+        confirmed:'<span class="badge b-blocked">Заблокирован</span>',
+        pending:'<span class="badge b-gold">На проверке</span>',
+        rejected:'<span class="badge b-mute">Отклонён</span>',
+      };
+      t.innerHTML = data.items.map(n => `<tr>
+        <td class="mono">${fmtPhone(n.phone)}</td>
+        <td>${esc(n.category)}</td>
+        <td>${esc(n.reports)}</td>
+        <td class="muted">${when(n.last_reported)}</td>
+        <td>${badges[n.status] || '<span class="badge b-mute">'+esc(n.status)+'</span>'}</td>
+        <td><button class="btn-danger" onclick="delCollector('${jsq(n.phone)}')">Удалить</button></td>
+      </tr>`).join('');
+    }
+    renderPager('col','c',data);
   }
   async function delCollector(phone){
     if(!confirm('Удалить номер +7 '+phone+' из базы?')) return;
-    await fetch('/collectors/'+encodeURIComponent(phone),{method:'DELETE',headers:headers()});
-    loadCollectors();
+    await api('/collectors/'+encodeURIComponent(phone),{method:'DELETE'});
+    loadCollectors(); loadStats();
   }
 
+  // ---- Белый список ----
   async function loadWhitelist(){
-    const r = await fetch('/collectors/whitelist',{headers:headers()});
-    if(r.status===401||r.status===403){ return; }
-    const list = await r.json();
+    const list = await api('/collectors/whitelist');
     const t = document.getElementById('wl-rows');
     if(!list.length){ t.innerHTML='<tr><td colspan="3" class="empty">Белый список пуст. Добавьте ваши номера, суд, ФССП.</td></tr>'; return; }
-    t.innerHTML = list.map(w=>`<tr>
-      <td>+7 ${w.phone}</td><td>${w.label||'—'}</td>
-      <td><button class="btn-danger" onclick="delWhitelist('${w.phone}')">Убрать</button></td>
+    t.innerHTML = list.map(w => `<tr>
+      <td class="mono">${fmtPhone(w.phone)}</td><td>${esc(w.label || '—')}</td>
+      <td><button class="btn-danger" onclick="delWhitelist('${jsq(w.phone)}')">Убрать</button></td>
     </tr>`).join('');
   }
   async function addWhitelist(){
     const phone=document.getElementById('wl-phone').value.trim();
     const label=document.getElementById('wl-label').value.trim();
     if(!phone){ alert('Введите номер'); return; }
-    await fetch('/collectors/whitelist',{method:'POST',headers:headers(),body:JSON.stringify({phone,label})});
+    try{
+      await api('/collectors/whitelist',{method:'POST',body:JSON.stringify({phone,label})});
+    }catch(e){ alert('Не удалось добавить номер — проверьте формат (10 цифр без +7).'); return; }
     document.getElementById('wl-phone').value=''; document.getElementById('wl-label').value='';
-    loadWhitelist(); loadCollectors();
+    loadWhitelist(); loadCollectors(); loadStats();
   }
   async function delWhitelist(phone){
-    await fetch('/collectors/whitelist/'+encodeURIComponent(phone),{method:'DELETE',headers:headers()});
-    loadWhitelist();
+    await api('/collectors/whitelist/'+encodeURIComponent(phone),{method:'DELETE'});
+    loadWhitelist(); loadStats();
   }
 
-  async function loadStats(){
-    const r = await fetch(API+'/stats',{headers:headers()});
-    if(r.status===401||r.status===403){ return logout(); }
-    const s = await r.json();
-    const t = [['Всего пользователей',s.total],['Активны за 7 дней',s.active_7d],['Заблокировано',s.blocked],['Всего входов',s.logins]];
-    document.getElementById('tiles').innerHTML = t.map(x=>`<div class="tile"><b>${x[1]}</b><span>${x[0]}</span></div>`).join('');
+  // ---- NPS ----
+  async function loadNps(){
+    const list = await api('/nps');
+    const t = document.getElementById('nps-rows');
+    if(!list.length){
+      t.innerHTML = '<tr><td colspan="4" class="empty">Пока нет оценок. Сохраняем только 8-10 (промоутеры).</td></tr>';
+      return;
+    }
+    t.innerHTML = list.map(n => `<tr>
+      <td>${esc(n.email)}</td>
+      <td><span class="badge b-ok">${esc(n.score)}/10</span></td>
+      <td>${n.left_review ? '<span class="badge b-ok">Да</span>' : '<span class="muted">—</span>'}</td>
+      <td class="muted">${when(n.created_at)}</td>
+    </tr>`).join('');
   }
 
-  async function loadUsers(){
-    const q = document.getElementById('q').value.trim();
-    const r = await fetch(API+'/users?q='+encodeURIComponent(q),{headers:headers()});
-    if(r.status===401||r.status===403){ return logout(); }
-    const users = await r.json();
-    const rows = document.getElementById('rows');
-    if(!users.length){ rows.innerHTML = '<tr><td colspan="5" class="empty">Пока нет пользователей. Войдите в приложение под каким-нибудь e-mail — он появится здесь.</td></tr>'; return; }
-    rows.innerHTML = users.map(u=>{
-      const badge = u.blocked ? '<span class="badge b-blocked">Заблокирован</span>' : '<span class="badge b-ok">Активен</span>';
-      const name = u.name || '—';
-      const last = u.last_seen ? u.last_seen.replace('T',' ').slice(0,16) : '—';
-      const blockBtn = u.blocked
-        ? `<button class="btn-warn" onclick="block('${u.email}',false)">Разблокировать</button>`
-        : `<button class="btn-warn" onclick="block('${u.email}',true)">Заблокировать</button>`;
-      return `<tr>
-        <td><div>${name}</div><div class="muted">${u.email}</div></td>
-        <td>${u.phone||'—'}</td>
-        <td class="muted">${last}</td>
-        <td>${badge}</td>
-        <td><div class="row-actions">
-          ${blockBtn}
-          <button class="btn-ghost" onclick="reset('${u.email}')">Сбросить сессию</button>
-          <button class="btn-danger" onclick="del('${u.email}')">Удалить (152-ФЗ)</button>
-        </div></td>
-      </tr>`;
-    }).join('');
-  }
-
-  let t=null;
-  function debouncedLoad(){ clearTimeout(t); t=setTimeout(loadUsers,300); }
-
-  async function block(email,blocked){
-    await fetch(API+'/users/'+encodeURIComponent(email)+'/block',{method:'POST',headers:headers(),body:JSON.stringify({blocked})});
-    loadUsers(); loadStats();
-  }
-  async function reset(email){
-    await fetch(API+'/users/'+encodeURIComponent(email)+'/reset',{method:'POST',headers:headers()});
-    alert('Сессии сброшены — на всех устройствах потребуется вход заново.');
-  }
-  async function del(email){
-    if(!confirm('Удалить ВСЕ данные пользователя '+email+'? Это действие необратимо (152-ФЗ, право на забвение).')) return;
-    await fetch(API+'/users/'+encodeURIComponent(email),{method:'DELETE',headers:headers()});
-    loadUsers(); loadStats();
-  }
-
+  checkAuthConfig();
   if(token) showDash();
 </script>
 </body>

@@ -83,6 +83,23 @@ class Settings(BaseSettings):
     # Email для уведомлений (сейчас — NPS-оценки клиентов).
     admin_email: str = "ivan.izhko@gmail.com"
 
+    # ---- Двухфакторная аутентификация админки (TOTP) ----
+    # Base32-секрет для приложения-аутентификатора (Google Authenticator,
+    # Яндекс.Ключ, 1Password и т.п.). Сгенерировать: python scripts/gen_totp.py
+    # Пусто → 2FA выключена, вход только по паролю (как раньше).
+    admin_totp_secret: str = ""
+    # Имя, под которым запись видна в приложении-аутентификаторе.
+    admin_totp_issuer: str = "Фаворит · Админ"
+
+    @property
+    def totp_enabled(self) -> bool:
+        return bool(self.admin_totp_secret.strip())
+
+    # ---- Защита логина от подбора пароля ----
+    # После N неудачных попыток с одного IP вход блокируется на M секунд.
+    admin_login_max_attempts: int = 5
+    admin_login_lockout_seconds: int = 300  # 5 минут
+
     # Распознавание номеров со скриншотов — Yandex Vision OCR (РФ).
     yandex_vision_api_key: str = ""
     yandex_folder_id: str = ""
