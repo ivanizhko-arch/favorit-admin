@@ -70,6 +70,25 @@
   .err{color:var(--danger);font-size:12.5px;margin-bottom:10px;min-height:16px}
   .section-title{font-size:15px;font-weight:800;color:var(--gold);margin:34px 0 12px;scroll-margin-top:16px}
   .pager{display:flex;gap:10px;align-items:center;margin-top:12px;font-size:12.5px;color:var(--muted)}
+
+  /* Контроль качества */
+  .warn{background:rgba(224,115,111,.09);border:1px solid rgba(224,115,111,.35);
+        color:#f0b3b0;border-radius:12px;padding:12px 14px;font-size:13px;margin-bottom:12px;line-height:1.55}
+  .warn b{color:var(--danger)}
+  .leader{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+          background:linear-gradient(90deg,rgba(215,174,94,.13),rgba(215,174,94,.02));
+          border:1px solid rgba(215,174,94,.4);border-radius:16px;padding:16px 18px;margin-bottom:12px}
+  .leader .crown{font-size:26px;line-height:1}
+  .leader .who{font-size:19px;font-weight:800;color:var(--gold)}
+  .leader .sub{font-size:12.5px;color:var(--muted);margin-top:3px}
+  .leader .pts{margin-left:auto;text-align:right}
+  .leader .pts b{display:block;font-size:26px;font-weight:800;color:var(--gold);line-height:1.1}
+  .leader .pts span{font-size:11.5px;color:var(--muted)}
+  /* Строка низкой оценки должна читаться до чтения — не только числом. */
+  tr.row-low td{background:rgba(224,115,111,.07)}
+  tr.row-low td:first-child{box-shadow:inset 3px 0 0 var(--danger)}
+  .b-low{background:rgba(224,115,111,.18);color:var(--danger)}
+  .b-neutral{background:rgba(154,160,172,.15);color:var(--muted)}
   .wl-add{display:flex;gap:10px;margin-bottom:12px}
   .wl-add input{margin:0}
   @media(max-width:760px){.tiles{grid-template-columns:repeat(2,1fr)}}
@@ -105,22 +124,19 @@
     <!-- ТРЕНД NPS -->
     <div class="trend">
       <h3>Тренд оценок клиентов</h3>
-      <p class="note">
-        В базу сохраняются только оценки <b>8-10</b> (промоутеры) — по решению бизнеса.
-        Классический NPS (промоутеры минус детракторы) из этих данных не считается,
-        поэтому ниже — средняя оценка промоутеров и их количество по месяцам.
-      </p>
+      <p class="note" id="trend-note"></p>
       <div id="nps-chart"></div>
       <div class="legend">
         <span><i style="background:rgba(215,174,94,.45)"></i>Оценок за месяц</span>
-        <span><i style="background:#4bbd86"></i>Средняя оценка (8-10)</span>
+        <span><i style="background:#4bbd86"></i><span id="trend-legend">Средняя оценка</span></span>
       </div>
     </div>
 
     <div class="nav">
       <a href="#s-users">Пользователи</a>
       <a href="#s-collectors">Коллекторы</a>
-      <a href="#s-nps">NPS</a>
+      <a href="#s-quality">Контроль качества</a>
+      <a href="#s-nps">Оценки</a>
       <a href="#s-whitelist">Белый список</a>
     </div>
 
@@ -186,12 +202,45 @@
       <span id="c-count"></span>
     </div>
 
-    <!-- NPS -->
-    <div class="section-title" id="s-nps">⭐ NPS-оценки клиентов (после «Долги списаны»)</div>
+    <!-- КОНТРОЛЬ КАЧЕСТВА -->
+    <div class="section-title" id="s-quality">🎯 Контроль качества и рейтинг менеджеров</div>
+    <div id="q-warn"></div>
+    <div class="filters">
+      <input id="q-month" type="month" onchange="loadQuality()" style="max-width:190px">
+      <button class="btn-ghost" onclick="syncQuality(this)">Разобрать оценки сейчас</button>
+      <button class="btn-gold" onclick="sendReport(this)">Отправить отчёт за месяц</button>
+      <span class="muted" id="q-status"></span>
+    </div>
+    <div id="q-leader"></div>
     <table>
-      <thead><tr><th>Клиент</th><th>Оценка</th><th>Оставил отзыв на Я.Картах</th><th>Когда</th></tr></thead>
+      <thead><tr><th>#</th><th>Менеджер</th><th>Итог</th><th>Лучших (9-10)</th><th>Низких (0-6)</th><th>Нейтральных</th></tr></thead>
+      <tbody id="q-rows"></tbody>
+    </table>
+    <p class="muted" style="margin-top:10px">
+      Итог = количество лучших оценок минус количество низких. Нейтральные (7-8) не учитываются.
+      Лидером может стать только менеджер, получивший хотя бы одну оценку 9-10.
+    </p>
+
+    <!-- ОЦЕНКИ -->
+    <div class="section-title" id="s-nps">⭐ Оценки клиентов (после «Долги списаны»)</div>
+    <div class="filters">
+      <select id="n-kind" onchange="resetPage('nps');loadNps()">
+        <option value="">Все оценки</option>
+        <option value="low">Требуют контроля (0-6)</option>
+        <option value="neutral">Нейтральные (7-8)</option>
+        <option value="top">Лучшие (9-10)</option>
+      </select>
+      <button class="btn-ghost" onclick="loadNps()">Обновить</button>
+    </div>
+    <table>
+      <thead><tr><th>Клиент</th><th>Оценка</th><th>Менеджер</th><th>Контроль качества</th><th>Отзыв</th><th>Когда</th></tr></thead>
       <tbody id="nps-rows"></tbody>
     </table>
+    <div class="pager">
+      <button class="btn-ghost" id="n-prev" onclick="page('nps',-1);loadNps()">← Назад</button>
+      <button class="btn-ghost" id="n-next" onclick="page('nps',1);loadNps()">Вперёд →</button>
+      <span id="n-count"></span>
+    </div>
 
     <!-- БЕЛЫЙ СПИСОК -->
     <div class="section-title" id="s-whitelist">✅ Защищённые номера (белый список)</div>
@@ -229,7 +278,7 @@
   function fmtPhone(p){ return p ? '+7 '+esc(p) : '—'; }
 
   // ---- Пагинация ----
-  const pages = {users:0, col:0};
+  const pages = {users:0, col:0, nps:0};
   function resetPage(k){ pages[k] = 0; }
   function page(k, delta){ pages[k] = Math.max(0, pages[k] + delta); }
   function renderPager(k, prefix, data){
@@ -314,7 +363,7 @@
   }
   function refreshAll(){
     loadStats(); loadTrend(); loadUsers(); loadCollectors();
-    loadWhitelist(); loadNps();
+    loadWhitelist(); loadNps(); loadQuality();
   }
 
   // ---- KPI-сводка ----
@@ -367,6 +416,23 @@
     const step = innerW / data.length;
     const bw = Math.min(46, step * 0.55);
 
+    // Сейчас основной сервис сохраняет только 8-10, все средние лежат в этом
+    // диапазоне, и узкая шкала показывает разницу. Как только пойдут оценки
+    // ниже, средняя провалится — при зашитой шкале линия молча легла бы на
+    // нижнюю границу, поэтому предел считаем по данным, а не по константе.
+    const SAVED_FLOOR = 8;
+    const avgs = data.filter(d => d.count).map(d => d.avg_score);
+    const hasLow = avgs.some(v => v < SAVED_FLOOR);
+    const lo = hasLow ? 0 : SAVED_FLOOR;
+    const ticks = hasLow ? [0, 5, 10] : [8, 9, 10];
+    document.getElementById('trend-note').innerHTML = hasLow
+      ? 'Столбцы — сколько оценок пришло за месяц, линия — средняя оценка по всей шкале 0-10.'
+      : 'В базу пока сохраняются только оценки <b>8-10</b> (промоутеры): основной сервис '
+        + 'отбрасывает остальные до записи. Поэтому линия — средняя по промоутерам, '
+        + 'а не классический NPS. Шкала развернётся на 0-10, как только низкие оценки начнут доходить.';
+    document.getElementById('trend-legend').textContent =
+      hasLow ? 'Средняя оценка' : 'Средняя оценка (8-10)';
+
     // Столбцы — количество оценок за месяц.
     const bars = data.map((d,i) => {
       const h = d.count / maxCount * innerH;
@@ -375,8 +441,8 @@
         height="${Math.max(h,0).toFixed(1)}" rx="4" fill="rgba(215,174,94,.45)"><title>${esc(d.month)}: ${d.count} оценок</title></rect>`;
     }).join('');
 
-    // Линия — средняя оценка. Шкала 8-10, месяцы без оценок разрывают линию.
-    const y = v => padT + innerH - ((Math.min(Math.max(v,8),10) - 8) / 2) * innerH;
+    // Линия — средняя оценка. Месяцы без оценок разрывают линию.
+    const y = v => padT + innerH - ((Math.min(Math.max(v,lo),10) - lo) / (10 - lo)) * innerH;
     const segments = [];
     let current = [];
     data.forEach((d,i) => {
@@ -394,7 +460,7 @@
     const labels = data.map((d,i) =>
       `<text x="${(padX + step*i + step/2).toFixed(1)}" y="${H-6}" text-anchor="middle"
         font-size="10" fill="#9aa0ac">${esc(d.month.slice(5))}.${esc(d.month.slice(2,4))}</text>`).join('');
-    const axis = [8,9,10].map(v =>
+    const axis = ticks.map(v =>
       `<text x="${padX-8}" y="${(y(v)+3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="#9aa0ac">${v}</text>
        <line x1="${padX}" y1="${y(v).toFixed(1)}" x2="${W-padX}" y2="${y(v).toFixed(1)}"
          stroke="#2a2c35" stroke-width="1"/>`).join('');
@@ -521,20 +587,139 @@
     loadWhitelist(); loadStats();
   }
 
-  // ---- NPS ----
+  // ---- Оценки клиентов ----
+  const SCORE_BADGE = { low:'b-low', neutral:'b-neutral', top:'b-ok' };
+
   async function loadNps(){
-    const list = await api('/nps');
+    const params = new URLSearchParams({
+      kind: document.getElementById('n-kind').value,
+      limit: PAGE,
+      offset: pages.nps * PAGE,
+    });
+    const data = await api('/nps?'+params);
     const t = document.getElementById('nps-rows');
-    if(!list.length){
-      t.innerHTML = '<tr><td colspan="4" class="empty">Пока нет оценок. Сохраняем только 8-10 (промоутеры).</td></tr>';
+    if(!data.items.length){
+      t.innerHTML = `<tr><td colspan="6" class="empty">${
+        data.total === 0
+          ? 'Пока нет оценок. Низкие (0-6) появятся здесь, как только основной сервис начнёт их сохранять.'
+          : 'Под фильтр ничего не подходит.'}</td></tr>`;
+    } else {
+      t.innerHTML = data.items.map(n => {
+        const low = n.category === 'low';
+        // Менеджер пуст, пока воркер не сходил в Битрикс за ответственным.
+        const manager = n.manager_name
+          ? esc(n.manager_name)
+          : (n.manager_id ? 'ID '+esc(n.manager_id)
+                          : '<span class="muted">не определён</span>');
+        let qc = '<span class="muted">—</span>';
+        if(low){
+          if(n.qc_task_id) qc = `<span class="badge b-ok">Задача №${esc(n.qc_task_id)}</span>`;
+          else if(n.attempts) qc = `<span class="badge b-blocked" title="${esc(n.last_error||'')}">Не создана (${esc(n.attempts)})</span>`;
+          else qc = '<span class="badge b-gold">В очереди</span>';
+        }
+        return `<tr class="${low ? 'row-low' : ''}">
+          <td>${esc(n.email)}</td>
+          <td><span class="badge ${SCORE_BADGE[n.category]||'b-neutral'}">${esc(n.score)}/10</span></td>
+          <td>${manager}</td>
+          <td>${qc}</td>
+          <td>${n.left_review ? '<span class="badge b-ok">Да</span>' : '<span class="muted">—</span>'}</td>
+          <td class="muted">${when(n.created_at)}</td>
+        </tr>`;
+      }).join('');
+    }
+    renderPager('nps','n',data);
+  }
+
+  // ---- Контроль качества и рейтинг ----
+  function currentMonth(){
+    const v = document.getElementById('q-month').value;
+    if(v) return v;
+    const d = new Date();
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  }
+
+  async function loadQuality(){
+    const month = currentMonth();
+    document.getElementById('q-month').value = month;
+    const [st, r] = await Promise.all([
+      api('/quality/status'),
+      api('/quality/rating?month='+encodeURIComponent(month)),
+    ]);
+
+    // Молча не работающая автоматика хуже отсутствующей — говорим прямо,
+    // чего не хватает в настройках.
+    const problems = [];
+    if(!st.bitrix_configured) problems.push('не задан <b>BITRIX_WEBHOOK_URL</b> — задачи и отчёты не отправляются');
+    if(!st.qc_head_set) problems.push('не задан <b>BITRIX_QC_HEAD_ID</b> — некому ставить задачи по низким оценкам');
+    if(!st.recipients) problems.push('не заданы ID руководителей — месячный отчёт никому не уйдёт');
+    if(st.stuck_tasks) problems.push(`<b>${st.stuck_tasks}</b> задач так и не создались после всех попыток`);
+    document.getElementById('q-warn').innerHTML = problems.length
+      ? `<div class="warn">${problems.map(p => '· '+p).join('<br>')}</div>` : '';
+
+    const last = st.last_report;
+    document.getElementById('q-status').innerHTML =
+      (st.unlinked_scores ? `не разобрано оценок: ${st.unlinked_scores} · ` : '') +
+      (last ? `последний отчёт: ${esc(last.year_month)} от ${when(last.sent_at)}`
+            : 'отчёты ещё не отправлялись');
+
+    // Итог со знаком: «+3» и «−2» читаются как результат, «3» и «-2» — нет.
+    const signed = v => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v);
+
+    const L = r.leader;
+    document.getElementById('q-leader').innerHTML = L ? `
+      <div class="leader">
+        <span class="crown">🏆</span>
+        <div>
+          <div class="who">${esc(L.manager_name || ('ID '+L.manager_id))}</div>
+          <div class="sub">Лидер месяца ${esc(r.year_month)} · лучших ${esc(L.top)}${
+            L.low ? ' · низких '+esc(L.low) : ''}</div>
+        </div>
+        <div class="pts"><b>${esc(signed(L.net))}</b><span>итог</span></div>
+      </div>` : '';
+
+    const t = document.getElementById('q-rows');
+    if(!r.managers.length){
+      t.innerHTML = '<tr><td colspan="6" class="empty">За этот месяц оценок нет.</td></tr>';
       return;
     }
-    t.innerHTML = list.map(n => `<tr>
-      <td>${esc(n.email)}</td>
-      <td><span class="badge b-ok">${esc(n.score)}/10</span></td>
-      <td>${n.left_review ? '<span class="badge b-ok">Да</span>' : '<span class="muted">—</span>'}</td>
-      <td class="muted">${when(n.created_at)}</td>
+    t.innerHTML = r.managers.map((m,i) => `<tr>
+      <td class="muted">${i+1}</td>
+      <td>${esc(m.manager_name || ('ID '+m.manager_id))}</td>
+      <td><b style="color:${m.net > 0 ? 'var(--ok)' : m.net < 0 ? 'var(--danger)' : 'var(--muted)'}">${esc(signed(m.net))}</b></td>
+      <td>${m.top ? `<span class="badge b-ok">${esc(m.top)}</span>` : '<span class="muted">—</span>'}</td>
+      <td>${m.low ? `<span class="badge b-low">${esc(m.low)}</span>` : '<span class="muted">—</span>'}</td>
+      <td class="muted">${m.neutral || '—'}</td>
     </tr>`).join('');
+  }
+
+  // Кнопки блокируем на время запроса: разбор ходит в Битрикс за каждым
+  // клиентом и может занять секунды, а второй клик поставил бы всё заново.
+  async function busy(btn, label, fn){
+    const text = btn.textContent;
+    btn.disabled = true; btn.textContent = label;
+    try { await fn(); } finally { btn.disabled = false; btn.textContent = text; }
+  }
+
+  function syncQuality(btn){
+    return busy(btn, 'Разбираю…', async () => {
+      const r = await api('/quality/sync',{method:'POST'});
+      alert(`Привязано оценок: ${r.linked.linked}\nЗадач создано: ${r.tasks.created}` +
+            (r.tasks.failed ? `\nНе удалось создать: ${r.tasks.failed}` : '') +
+            (r.linked.skipped ? `\nОтложено до следующего раза: ${r.linked.skipped}` : ''));
+      loadNps(); loadQuality();
+    });
+  }
+
+  function sendReport(btn){
+    const month = currentMonth();
+    if(!confirm(`Отправить отчёт за ${month} руководителям контроля качества, сопровождения и генеральному директору?`)) return;
+    return busy(btn, 'Отправляю…', async () => {
+      const r = await api('/quality/report/'+encodeURIComponent(month),{method:'POST'});
+      if(r.already_sent) alert(`Отчёт за ${month} уже отправлялся ${when(r.report.sent_at)}. Повторно — только через воркер с флагом --force.`);
+      else if(r.ok) alert(`Отчёт отправлен. Создано задач: ${r.task_ids.length}.`);
+      else alert('Не отправлено: ' + (r.error || 'неизвестная ошибка'));
+      loadQuality();
+    });
   }
 
   checkAuthConfig();

@@ -1,0 +1,16 @@
+[Unit]
+Description=Favorit: разбор оценок клиентов и месячный отчёт
+After=network-online.target favorit-admin.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=favorit
+Group=favorit
+WorkingDirectory=/home/favorit/favorit-admin
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/home/favorit/favorit-admin/.env
+ExecStart=/home/favorit/favorit-admin/.venv/bin/python scripts/nps_worker.py
+# Битрикс может не ответить — один неудачный прогон не повод сыпать алертами,
+# следующий будет через 10 минут.
+TimeoutStartSec=300
