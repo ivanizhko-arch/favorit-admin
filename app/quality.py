@@ -370,6 +370,23 @@ def _report_text(year_month: str, data: dict, lows: list[dict]) -> tuple[str, st
             who = r["manager_name"] or "менеджер не определён"
             lines.append(f"· {r['score']}/10 — {r['email']} ({when}, {who}{task})")
 
+    # Жалобы — тот же контур качества, руководителю нужны обе картины сразу.
+    from . import complaints
+    cmp_rows = complaints.month_summary(year_month)
+    if cmp_rows:
+        overdue = [r for r in cmp_rows
+                   if r["status"] in complaints.OPEN_STATUSES]
+        lines += ["", f"[B]Жалобы ({len(cmp_rows)})[/B]"]
+        for r in cmp_rows:
+            when = (r["created_at"] or "").replace("T", " ")[:16]
+            task = f", задача №{r['qc_task_id']}" if r["qc_task_id"] else ""
+            lines.append(f"· {r['category_label']} — {r['email']} "
+                         f"({when}, {r['status_label']}{task})")
+        if overdue:
+            lines.append(f"Не закрыто на момент отчёта: {len(overdue)}.")
+    else:
+        lines += ["", "[B]Жалобы[/B]", "За месяц жалоб не поступало."]
+
     lines += ["", f"Итог = количество лучших оценок ({best}) минус количество "
               f"низких ({worst}). Нейтральные не учитываются.",
               "Отчёт сформирован админ-панелью автоматически."]
@@ -511,9 +528,15 @@ def status() -> dict:
 
 
 def run_worker() -> dict:
-    """Один полный прогон: разобрать оценки, поставить задачи, при
+    """Один полный прогон: разобрать оценки и жалобы, поставить задачи, при
     наступлении срока отправить месячный отчёт."""
-    result = {"linked": process_new_scores(), "tasks": create_pending_tasks()}
+    from . import complaints  # локальный импорт: complaints ничего не знает
+                              # про quality, обратная связь только здесь
+    result = {
+        "linked": process_new_scores(),
+        "tasks": create_pending_tasks(),
+        "complaints": complaints.process_pending(),
+    }
     ym = due_report_month()
     result["report"] = send_monthly_report(ym) if ym else {"skipped": True}
     return result
