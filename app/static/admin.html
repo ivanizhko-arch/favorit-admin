@@ -29,9 +29,17 @@
 
   /* Дашборд */
   .hidden{display:none}
-  .nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
-  .nav a{text-decoration:none;background:#1a1c24;border:1px solid var(--line);color:#c8ccd4;padding:7px 13px;border-radius:20px;font-size:12.5px;font-weight:600}
-  .nav a:hover{border-color:var(--gold);color:var(--gold)}
+  .tabs{display:flex;gap:4px;margin-bottom:24px;border-bottom:1px solid var(--line);
+        overflow-x:auto;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tabs button{background:transparent;border:none;border-bottom:2px solid transparent;
+        color:var(--muted);padding:11px 18px;font-size:14px;font-weight:700;
+        white-space:nowrap;margin-bottom:-1px;border-radius:0}
+  .tabs button:hover{color:#e8ebf1}
+  .tabs button[aria-selected="true"]{color:var(--gold);border-bottom-color:var(--gold)}
+  .tabs button:focus-visible{outline:2px solid var(--gold);outline-offset:-4px}
+  /* Первый заголовок во вкладке не должен отбиваться сверху как между разделами. */
+  .panel > .section-title:first-child{margin-top:0}
 
   /* KPI */
   .kpi-group{margin-bottom:18px}
@@ -118,6 +126,18 @@
       <button class="btn-ghost" onclick="logout()">Выйти</button>
     </div>
 
+    <div class="tabs" role="tablist" aria-label="Разделы админки">
+      <button type="button" role="tab" data-tab="dashboard" aria-selected="true"
+              aria-controls="p-dashboard">Дашборд</button>
+      <button type="button" role="tab" data-tab="clients" aria-selected="false"
+              aria-controls="p-clients">Клиенты</button>
+      <button type="button" role="tab" data-tab="quality" aria-selected="false"
+              aria-controls="p-quality">Качество</button>
+    </div>
+
+    <!-- ВКЛАДКА: ДАШБОРД -->
+    <section class="panel" id="p-dashboard" role="tabpanel">
+
     <!-- KPI-СВОДКА -->
     <div id="kpi"></div>
 
@@ -132,13 +152,10 @@
       </div>
     </div>
 
-    <div class="nav">
-      <a href="#s-users">Пользователи</a>
-      <a href="#s-collectors">Коллекторы</a>
-      <a href="#s-quality">Контроль качества</a>
-      <a href="#s-nps">Оценки</a>
-      <a href="#s-whitelist">Белый список</a>
-    </div>
+    </section>
+
+    <!-- ВКЛАДКА: КЛИЕНТЫ -->
+    <section class="panel hidden" id="p-clients" role="tabpanel">
 
     <!-- ПОЛЬЗОВАТЕЛИ -->
     <div class="section-title" id="s-users">👤 Пользователи</div>
@@ -202,6 +219,23 @@
       <span id="c-count"></span>
     </div>
 
+    <!-- БЕЛЫЙ СПИСОК -->
+    <div class="section-title" id="s-whitelist">✅ Защищённые номера (белый список)</div>
+    <div class="wl-add">
+      <input id="wl-phone" placeholder="Номер (+7...)">
+      <input id="wl-label" placeholder="Кто это (напр. Суд, ФССП, наш номер)">
+      <button class="btn-gold" onclick="addWhitelist()">Добавить</button>
+    </div>
+    <table>
+      <thead><tr><th>Номер</th><th>Метка</th><th>Действия</th></tr></thead>
+      <tbody id="wl-rows"></tbody>
+    </table>
+
+    </section>
+
+    <!-- ВКЛАДКА: КАЧЕСТВО -->
+    <section class="panel hidden" id="p-quality" role="tabpanel">
+
     <!-- КОНТРОЛЬ КАЧЕСТВА -->
     <div class="section-title" id="s-quality">🎯 Контроль качества и рейтинг менеджеров</div>
     <div id="q-warn"></div>
@@ -242,17 +276,7 @@
       <span id="n-count"></span>
     </div>
 
-    <!-- БЕЛЫЙ СПИСОК -->
-    <div class="section-title" id="s-whitelist">✅ Защищённые номера (белый список)</div>
-    <div class="wl-add">
-      <input id="wl-phone" placeholder="Номер (+7...)">
-      <input id="wl-label" placeholder="Кто это (напр. Суд, ФССП, наш номер)">
-      <button class="btn-gold" onclick="addWhitelist()">Добавить</button>
-    </div>
-    <table>
-      <thead><tr><th>Номер</th><th>Метка</th><th>Действия</th></tr></thead>
-      <tbody id="wl-rows"></tbody>
-    </table>
+    </section>
 
   </div>
 </div>
@@ -359,12 +383,53 @@
   function showDash(){
     document.getElementById('login').classList.add('hidden');
     document.getElementById('dash').classList.remove('hidden');
-    refreshAll();
+    openTab(location.hash.slice(1) || 'dashboard');
   }
-  function refreshAll(){
-    loadStats(); loadTrend(); loadUsers(); loadCollectors();
-    loadWhitelist(); loadNps(); loadQuality();
+
+  // ---- Вкладки ----
+  // Данные грузятся при первом открытии вкладки, а не все разом. Раньше вход
+  // в админку разом отправлял семь запросов, а видно было два блока.
+  const TAB_LOADERS = {
+    dashboard: () => { loadStats(); loadTrend(); },
+    clients:   () => { loadUsers(); loadCollectors(); loadWhitelist(); },
+    quality:   () => { loadQuality(); loadNps(); },
+  };
+  const TAB_NAMES = Object.keys(TAB_LOADERS);
+  const tabLoaded = {};
+  let currentTab = 'dashboard';
+
+  function openTab(name){
+    if(!TAB_LOADERS[name]) name = 'dashboard';
+    currentTab = name;
+    TAB_NAMES.forEach(n =>
+      document.getElementById('p-'+n).classList.toggle('hidden', n !== name));
+    document.querySelectorAll('.tabs button').forEach(b =>
+      b.setAttribute('aria-selected', String(b.dataset.tab === name)));
+    if(location.hash.slice(1) !== name) history.replaceState(null, '', '#'+name);
+    if(!tabLoaded[name]){ tabLoaded[name] = true; TAB_LOADERS[name](); }
   }
+
+  // Действие на одной вкладке меняет цифры на другой: блокировка клиента —
+  // сводку на дашборде. Если вкладка не открыта, помечаем её устаревшей и
+  // перезагружаем при следующем открытии, а не дёргаем запрос вслепую.
+  function invalidate(name){
+    if(name === currentTab) TAB_LOADERS[name]();
+    else tabLoaded[name] = false;
+  }
+
+  document.querySelectorAll('.tabs button').forEach(b => {
+    b.addEventListener('click', () => openTab(b.dataset.tab));
+    b.addEventListener('keydown', e => {
+      const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if(!step) return;
+      e.preventDefault();
+      const i = TAB_NAMES.indexOf(b.dataset.tab);
+      const next = TAB_NAMES[(i + step + TAB_NAMES.length) % TAB_NAMES.length];
+      openTab(next);
+      document.querySelector('.tabs button[data-tab="'+next+'"]').focus();
+    });
+  });
+  window.addEventListener('hashchange', () => openTab(location.hash.slice(1)));
 
   // ---- KPI-сводка ----
   async function loadStats(){
@@ -512,7 +577,7 @@
   async function block(email,blocked){
     await api('/users/'+encodeURIComponent(email)+'/block',
       {method:'POST',body:JSON.stringify({blocked})});
-    loadUsers(); loadStats();
+    loadUsers(); invalidate('dashboard');
   }
   async function reset(email){
     await api('/users/'+encodeURIComponent(email)+'/reset',{method:'POST'});
@@ -521,7 +586,7 @@
   async function del(email){
     if(!confirm('Удалить ВСЕ данные пользователя '+email+'? Это действие необратимо (152-ФЗ, право на забвение).')) return;
     await api('/users/'+encodeURIComponent(email),{method:'DELETE'});
-    loadUsers(); loadStats();
+    loadUsers(); invalidate('dashboard');
   }
 
   // ---- Коллекторы ----
@@ -559,7 +624,7 @@
   async function delCollector(phone){
     if(!confirm('Удалить номер +7 '+phone+' из базы?')) return;
     await api('/collectors/'+encodeURIComponent(phone),{method:'DELETE'});
-    loadCollectors(); loadStats();
+    loadCollectors(); invalidate('dashboard');
   }
 
   // ---- Белый список ----
@@ -580,11 +645,11 @@
       await api('/collectors/whitelist',{method:'POST',body:JSON.stringify({phone,label})});
     }catch(e){ alert('Не удалось добавить номер — проверьте формат (10 цифр без +7).'); return; }
     document.getElementById('wl-phone').value=''; document.getElementById('wl-label').value='';
-    loadWhitelist(); loadCollectors(); loadStats();
+    loadWhitelist(); loadCollectors(); invalidate('dashboard');
   }
   async function delWhitelist(phone){
     await api('/collectors/whitelist/'+encodeURIComponent(phone),{method:'DELETE'});
-    loadWhitelist(); loadStats();
+    loadWhitelist(); invalidate('dashboard');
   }
 
   // ---- Оценки клиентов ----
