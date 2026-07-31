@@ -32,7 +32,7 @@ import statistics
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from . import bitrix
+from . import bitrix, store
 from .config import settings
 
 log = logging.getLogger(__name__)
@@ -41,11 +41,19 @@ log = logging.getLogger(__name__)
 # это не статистика, а случайность.
 MIN_SAMPLE = 3
 
+# По сколько строк писать за одну транзакцию. Блокировка на запись держится
+# всё время транзакции, и сбросить 20 000 записей истории одним куском значит
+# на это время лишить записи админку и основной сервис.
+WRITE_CHUNK = 200
+
+
+def _chunks(rows: list, size: int = WRITE_CHUNK):
+    for i in range(0, len(rows), size):
+        yield rows[i:i + size]
+
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(settings.db_path)
-    c.row_factory = sqlite3.Row
-    return c
+    return store.connect()
 
 
 def _now() -> datetime:
@@ -177,27 +185,28 @@ def sync(force: bool = False) -> dict:
         return {"error": str(e), **result}
 
     newest = since
-    with _conn() as c:
-        for d in rows:
-            created = _parse(d.get("DATE_CREATE"))
-            modified = _parse(d.get("DATE_MODIFY"))
-            closed = _parse(d.get("CLOSEDATE"))
-            c.execute(
-                "INSERT INTO deal_snapshot (deal_id, stage_id, contact_id, "
-                " assigned_by_id, created_at, modified_at, closed_at, synced_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(deal_id) DO UPDATE SET stage_id = excluded.stage_id, "
-                " contact_id = excluded.contact_id, "
-                " assigned_by_id = excluded.assigned_by_id, "
-                " modified_at = excluded.modified_at, "
-                " closed_at = excluded.closed_at, synced_at = excluded.synced_at",
-                (int(d.get("ID") or 0), d.get("STAGE_ID") or "",
-                 int(d.get("CONTACT_ID") or 0), int(d.get("ASSIGNED_BY_ID") or 0),
-                 _iso(created) if created else None,
-                 _iso(modified) if modified else None,
-                 _iso(closed) if closed else None, now))
-            if modified and (not newest or _iso(modified) > newest):
-                newest = _iso(modified)
+    for chunk in _chunks(rows):
+        with _conn() as c:
+            for d in chunk:
+                created = _parse(d.get("DATE_CREATE"))
+                modified = _parse(d.get("DATE_MODIFY"))
+                closed = _parse(d.get("CLOSEDATE"))
+                c.execute(
+                    "INSERT INTO deal_snapshot (deal_id, stage_id, contact_id, "
+                    " assigned_by_id, created_at, modified_at, closed_at, synced_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(deal_id) DO UPDATE SET stage_id = excluded.stage_id, "
+                    " contact_id = excluded.contact_id, "
+                    " assigned_by_id = excluded.assigned_by_id, "
+                    " modified_at = excluded.modified_at, "
+                    " closed_at = excluded.closed_at, synced_at = excluded.synced_at",
+                    (int(d.get("ID") or 0), d.get("STAGE_ID") or "",
+                     int(d.get("CONTACT_ID") or 0), int(d.get("ASSIGNED_BY_ID") or 0),
+                     _iso(created) if created else None,
+                     _iso(modified) if modified else None,
+                     _iso(closed) if closed else None, now))
+                if modified and (not newest or _iso(modified) > newest):
+                    newest = _iso(modified)
     result["deals"] = len(rows)
     if newest:
         _set_state("deals_modified_to", newest)
@@ -212,17 +221,18 @@ def sync(force: bool = False) -> dict:
         return {"error": str(e), **result}
 
     newest_h = hsince
-    with _conn() as c:
-        for h in hist:
-            at = _parse(h.get("CREATED_TIME"))
-            if not at:
-                continue
-            c.execute(
-                "INSERT OR IGNORE INTO deal_stage_history "
-                "(deal_id, stage_id, entered_at) VALUES (?, ?, ?)",
-                (int(h.get("OWNER_ID") or 0), h.get("STAGE_ID") or "", _iso(at)))
-            if not newest_h or _iso(at) > newest_h:
-                newest_h = _iso(at)
+    for chunk in _chunks(hist):
+        with _conn() as c:
+            for h in chunk:
+                at = _parse(h.get("CREATED_TIME"))
+                if not at:
+                    continue
+                c.execute(
+                    "INSERT OR IGNORE INTO deal_stage_history "
+                    "(deal_id, stage_id, entered_at) VALUES (?, ?, ?)",
+                    (int(h.get("OWNER_ID") or 0), h.get("STAGE_ID") or "", _iso(at)))
+                if not newest_h or _iso(at) > newest_h:
+                    newest_h = _iso(at)
     result["history"] = len(hist)
     if newest_h:
         _set_state("history_to", newest_h)

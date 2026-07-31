@@ -11,6 +11,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
+from . import store
 from .config import settings
 
 
@@ -24,9 +25,8 @@ def norm_phone(s: str) -> str:
 
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(settings.db_path)
-    c.row_factory = sqlite3.Row
-    return c
+    # Настройки соединения общие для всех модулей — см. store.connect().
+    return store.connect()
 
 
 def init() -> None:

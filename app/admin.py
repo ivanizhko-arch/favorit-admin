@@ -329,7 +329,10 @@ def require_internal(request: Request) -> None:
         raise HTTPException(status_code=503,
                             detail="Служебный доступ не настроен")
     sent = request.headers.get("x-internal-token", "")
-    if not secrets.compare_digest(sent, token):
+    # Сравниваем байты, а не строки: compare_digest на строках требует ASCII
+    # и бросает исключение на чужом заголовке с кириллицей — вместо отказа
+    # получался бы 500, то есть внешний запрос ронял бы обработчик.
+    if not secrets.compare_digest(sent.encode("utf-8"), token.encode("utf-8")):
         log.warning("Служебный запрос с неверным токеном, IP %s",
                     client_ip(request))
         raise HTTPException(status_code=403, detail="Доступ запрещён")

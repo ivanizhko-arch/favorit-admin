@@ -21,16 +21,14 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from . import bitrix
+from . import bitrix, store
 from .config import settings
 
 log = logging.getLogger(__name__)
 
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(settings.db_path)
-    c.row_factory = sqlite3.Row
-    return c
+    return store.connect()
 
 
 def _now_iso() -> str:
@@ -82,7 +80,14 @@ def init() -> None:
 # Градация
 # ---------------------------------------------------------------------------
 def category(score: int) -> str:
-    """low — в контроль качества, top — в рейтинг, neutral — никуда."""
+    """low — в контроль качества, top — в рейтинг, neutral — никуда.
+
+    invalid — оценка вне шкалы 0-10. Основной сервис диапазон не проверяет,
+    и без этой ветки запись со значением 42 попадала бы в рейтинг менеджера
+    как отличная, а отрицательная — порождала задачу контролю качества.
+    """
+    if score < 0 or score > 10:
+        return "invalid"
     if score <= settings.qc_detractor_max:
         return "low"
     if score >= settings.qc_promoter_min:
@@ -181,7 +186,9 @@ def _tasks_due() -> list[dict]:
     with _conn() as c:
         rows = c.execute(
             "SELECT * FROM nps_followup "
-            "WHERE score <= ? AND qc_task_id = 0 AND attempts < ? "
+            # score >= 0 отсекает записи вне шкалы: по оценке «-3» задача
+            # контролю качества не нужна, это битые данные, а не недовольство.
+            "WHERE score BETWEEN 0 AND ? AND qc_task_id = 0 AND attempts < ? "
             "AND score_created_at >= ? "
             "ORDER BY nps_id",
             (settings.qc_detractor_max, settings.qc_task_max_attempts, cutoff),
@@ -282,11 +289,17 @@ def rating(year_month: str) -> dict:
         ).fetchall()
 
     by_manager: dict[int, dict] = {}
-    totals = {"top": 0, "neutral": 0, "low": 0, "net": 0, "scores": 0}
+    totals = {"top": 0, "neutral": 0, "low": 0, "net": 0, "scores": 0,
+              "invalid": 0}
 
     for r in rows:
         mid = int(r["manager_id"] or 0)
         cat = category(int(r["score"]))
+        if cat == "invalid":
+            # Битая запись не должна ни помогать менеджеру, ни вредить ему.
+            # Считаем отдельно, чтобы её было видно, а не молча выбрасываем.
+            totals["invalid"] += 1
+            continue
         m = by_manager.setdefault(mid, {
             "manager_id": mid,
             "manager_name": r["manager_name"] or ("" if mid else "Не определён"),
@@ -427,8 +440,12 @@ def send_monthly_report(year_month: str, force: bool = False) -> dict:
 
     recipients = settings.monthly_report_recipients
     if not bitrix.configured() or not recipients:
+        # Это не сбой отправки, а незаконченная настройка. Помечаем как
+        # пропуск: иначе на ненастроенном сервере воркер возвращал бы ошибку
+        # каждые 10 минут, и systemd показывал бы юнит упавшим — за таким
+        # «алертом» перестают следить, и настоящий сбой пройдёт незамеченным.
         return {"ok": False, "already_sent": False,
-                "error": "Не задан BITRIX_WEBHOOK_URL или ID руководителей",
+                "skipped": "не задан BITRIX_WEBHOOK_URL или ID руководителей",
                 "preview": {"title": title, "body": body}}
 
     task_ids, errors = [], []

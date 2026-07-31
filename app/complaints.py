@@ -20,7 +20,7 @@ import logging
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
-from . import bitrix
+from . import bitrix, store
 from .config import settings
 
 log = logging.getLogger(__name__)
@@ -47,9 +47,7 @@ OPEN_STATUSES = ("open", "in_progress")
 
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(settings.db_path)
-    c.row_factory = sqlite3.Row
-    return c
+    return store.connect()
 
 
 def _now() -> datetime:
@@ -96,6 +94,21 @@ def init() -> None:
                   "ON complaints (email, status)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_complaints_status "
                   "ON complaints (status, created_at)")
+        # Главное правило — одна открытая жалоба на тему — держится здесь,
+        # а не только на проверке в коде. Проверка и вставка идут разными
+        # транзакциями, и между ними есть окно: два быстрых нажатия создавали
+        # два обращения по одной теме в обход правила. Частичный уникальный
+        # индекс закрывает окно на уровне базы.
+        try:
+            c.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_complaints_one_open "
+                "ON complaints (email, category) "
+                f"WHERE status IN ({','.join(repr(s) for s in OPEN_STATUSES)})")
+        except sqlite3.IntegrityError:
+            # В базе уже есть дубли, оставшиеся до появления индекса. Ломать
+            # запуск сервиса из-за них нельзя — разбираются вручную.
+            log.warning("Индекс уникальности жалоб не создан: в базе есть "
+                        "несколько открытых жалоб по одной теме у клиента")
 
 
 # ---------------------------------------------------------------------------
@@ -206,13 +219,20 @@ def submit(email: str, category: str, text: str) -> dict:
 
     now = _now()
     due = now + timedelta(days=settings.complaint_answer_days)
-    with _conn() as c:
-        cur = c.execute(
-            "INSERT INTO complaints (email, category, text, status, answer_due, "
-            " created_at, updated_at) VALUES (?, ?, ?, 'open', ?, ?, ?)",
-            (email, category, text, _iso(due), _iso(now), _iso(now)),
-        )
-        cid = int(cur.lastrowid or 0)
+    try:
+        with _conn() as c:
+            cur = c.execute(
+                "INSERT INTO complaints (email, category, text, status, answer_due, "
+                " created_at, updated_at) VALUES (?, ?, ?, 'open', ?, ?, ?)",
+                (email, category, text, _iso(due), _iso(now), _iso(now)),
+            )
+            cid = int(cur.lastrowid or 0)
+    except sqlite3.IntegrityError:
+        # Пока мы проверяли, клиент успел подать жалобу по этой же теме
+        # (два нажатия подряд). Индекс не дал создать дубль — отвечаем тем
+        # же понятным текстом, что и обычная проверка.
+        check_can_submit(email, category)
+        raise Rejected("Жалоба по этой теме уже отправлена.", "duplicate_category")
     log.info("Жалоба №%s от %s, тема «%s»", cid, email, CATEGORIES[category])
     return {"id": cid, "answer_due": _iso(due),
             "answer_days": settings.complaint_answer_days}
