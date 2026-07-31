@@ -1,0 +1,46 @@
+name: Тесты
+
+# Гоняем на каждый push и на каждый pull request. Смысл в том, чтобы
+# известные дефекты (tests/test_regressions.py) не вернулись незамеченными.
+on:
+  push:
+    branches: [main, test, 'feature/**']
+  pull_request:
+    branches: [main, test]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      # Нужен для tests/ui/check_ui.js — проверок страницы админки.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Установить зависимости
+        run: pip install -r requirements-dev.txt
+
+      - name: Проверить синтаксис и неиспользуемое
+        run: python -m pyflakes app scripts/gen_totp.py scripts/nps_worker.py
+
+      - name: Тесты
+        run: python -m pytest -v
+
+      - name: Сервис поднимается
+        run: |
+          DB_PATH=/tmp/ci.db SECRET_KEY=ci ADMIN_PASSWORD=ci \
+            python -m uvicorn app.main:app --port 8123 &
+          for i in $(seq 1 10); do
+            sleep 1
+            if curl -sf http://127.0.0.1:8123/health > /dev/null; then
+              echo "сервис ответил на $i секунде"; exit 0
+            fi
+          done
+          echo "сервис не поднялся"; exit 1

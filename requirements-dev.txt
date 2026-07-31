@@ -1,0 +1,5 @@
+# Зависимости только для тестов. На проде не ставятся.
+-r requirements.txt
+pytest==8.2.2
+httpx==0.27.0          # нужен fastapi.testclient
+pyflakes==3.2.0
