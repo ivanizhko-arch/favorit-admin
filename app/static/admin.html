@@ -459,7 +459,12 @@
       document.getElementById('p-'+n).classList.toggle('hidden', n !== name));
     document.querySelectorAll('.tabs button').forEach(b =>
       b.setAttribute('aria-selected', String(b.dataset.tab === name)));
-    if(location.hash.slice(1) !== name) history.replaceState(null, '', '#'+name);
+    // Адрес вкладки — удобство, а не функциональность: в песочнице с
+    // непрозрачным источником history API бросает исключение, и без защиты
+    // оно обрывало бы загрузку данных вкладки.
+    if(location.hash.slice(1) !== name){
+      try { history.replaceState(null, '', '#'+name); } catch(e){}
+    }
     if(!tabLoaded[name]){ tabLoaded[name] = true; TAB_LOADERS[name](); }
   }
 
