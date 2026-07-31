@@ -141,6 +141,67 @@ class Settings(BaseSettings):
     # День месяца, начиная с которого отправляем отчёт за прошлый месяц.
     monthly_report_day: int = 1
 
+    # ---- Стадии банкротства (воронка Битрикса) ----
+    # Направление сделок «БФЛ. Сопровождение».
+    bankruptcy_category_id: int = 15
+
+    # Стадия, означающая завершение дела. По решению заказчика это «Долг
+    # списан», а НЕ «Успешно реализовано»: сделка может висеть открытой
+    # ещё долго после списания, и считать по ней значило бы завышать срок.
+    stage_done_id: str = "C15:UC_UJI8T9"
+
+    # Стадии после списания: дело уже закончено, просто сделка доводится до
+    # формального закрытия. В «в работе» они попадать не должны — иначе
+    # завершённые дела вечно считались бы текущими.
+    stage_success_ids: str = "C15:WON"
+
+    # Служебные стадии: не этап работы, а технический или маркерный признак.
+    # В воронку и в средние сроки не входят.
+    stage_service_ids: str = "C15:NEW,C15:UC_HN6K2D"
+
+    # Ожидание и проблемы: дело стоит не потому, что идёт работа. Считаем
+    # отдельно и показываем как «застряло», в средний срок прохождения
+    # не подмешиваем — иначе непонятно, где работа, а где простой.
+    stage_stuck_ids: str = "C15:UC_7ICUJ1,C15:PREPARATION,C15:UC_ZTR9AW"
+
+    # Провальные исходы. Из среднего срока дела исключаются: дело не дошло
+    # до списания, и его длительность ничего не говорит о типичном сроке.
+    stage_failed_ids: str = "C15:PREPAYMENT_INVOIC,C15:EXECUTING,C15:LOSE"
+
+    # Взаимоисключающие процедуры: клиент проходит одну из них, не обе.
+    # Показываем рядом, а не усредняем вместе.
+    stage_alternative_ids: str = "C15:UC_LWCW5Y,C15:UC_3UFLUY"
+
+    def _stage_set(self, raw: str) -> set:
+        return {s.strip() for s in raw.split(",") if s.strip()}
+
+    @property
+    def service_stages(self) -> set:
+        return self._stage_set(self.stage_service_ids)
+
+    @property
+    def stuck_stages(self) -> set:
+        return self._stage_set(self.stage_stuck_ids)
+
+    @property
+    def failed_stages(self) -> set:
+        return self._stage_set(self.stage_failed_ids)
+
+    @property
+    def success_stages(self) -> set:
+        return self._stage_set(self.stage_success_ids)
+
+    @property
+    def alternative_stages(self) -> set:
+        return self._stage_set(self.stage_alternative_ids)
+
+    # Как часто обновлять снимок сделок. Стадии меняются медленнее оценок,
+    # каждые 10 минут выгребать Битрикс незачем.
+    stage_sync_min_interval_minutes: int = 60
+    # Сколько сделок тянуть за один прогон. Битрикс отдаёт по 50 на страницу;
+    # ограничение защищает от многочасового первого прогона.
+    stage_sync_max_deals: int = 2000
+
     # ---- Жалобы клиентов ----
     # Общий секрет для служебного эндпоинта, через который основной backend
     # передаёт жалобу. Пусто → эндпоинт закрыт (503), а не открыт всем:

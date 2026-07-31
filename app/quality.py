@@ -530,12 +530,15 @@ def status() -> dict:
 def run_worker() -> dict:
     """Один полный прогон: разобрать оценки и жалобы, поставить задачи, при
     наступлении срока отправить месячный отчёт."""
-    from . import complaints  # локальный импорт: complaints ничего не знает
-                              # про quality, обратная связь только здесь
+    from . import complaints, stages  # локальный импорт: те модули ничего
+                                      # не знают про quality, связь только тут
     result = {
         "linked": process_new_scores(),
         "tasks": create_pending_tasks(),
         "complaints": complaints.process_pending(),
+        # Снимок стадий обновляется по своему расписанию (раз в час),
+        # частые вызовы он отбрасывает сам.
+        "stages": stages.sync(),
     }
     ym = due_report_month()
     result["report"] = send_monthly_report(ym) if ym else {"skipped": True}

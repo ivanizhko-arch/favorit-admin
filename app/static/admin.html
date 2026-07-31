@@ -153,6 +153,20 @@
     <!-- KPI-СВОДКА -->
     <div id="kpi"></div>
 
+    <!-- СТАДИИ БАНКРОТСТВА -->
+    <div class="section-title" id="s-stages">⚖️ Стадии банкротства</div>
+    <div id="st-warn"></div>
+    <div id="st-overall"></div>
+    <div class="filters">
+      <span class="muted" id="st-status"></span>
+      <button class="btn-ghost" style="margin-left:auto" onclick="syncStages(this)">Обновить из Битрикса</button>
+    </div>
+    <table>
+      <thead><tr><th>Стадия</th><th>Сейчас</th><th>Средний срок</th><th>Медиана</th><th>Дольше всех</th></tr></thead>
+      <tbody id="st-rows"></tbody>
+    </table>
+    <p class="muted" id="st-note" style="margin-top:10px"></p>
+
     <!-- ТРЕНД NPS -->
     <div class="trend">
       <h3>Тренд оценок клиентов</h3>
@@ -430,7 +444,7 @@
   // Данные грузятся при первом открытии вкладки, а не все разом. Раньше вход
   // в админку разом отправлял семь запросов, а видно было два блока.
   const TAB_LOADERS = {
-    dashboard: () => { loadStats(); loadTrend(); },
+    dashboard: () => { loadStats(); loadStages(); loadTrend(); },
     clients:   () => { loadUsers(); loadCollectors(); loadWhitelist(); },
     quality:   () => { loadQuality(); loadNps(); loadComplaints(); },
   };
@@ -505,6 +519,90 @@
           </div>`).join('')}
         </div>
       </div>`).join('');
+  }
+
+  // ---- Стадии банкротства ----
+  const STAGE_KIND = {
+    work:   { cls:'', hint:'' },
+    stuck:  { cls:'b-gold',    hint:'ожидание, не работа' },
+    failed: { cls:'b-low',     hint:'дело не дошло до списания' },
+    done:   { cls:'b-ok',      hint:'завершение дела' },
+  };
+  const days = v => v === null || v === undefined ? '—' : esc(v) + ' дн.';
+
+  async function loadStages(){
+    const d = await api('/stages');
+    const st = d.status, ov = d.overall;
+
+    document.getElementById('st-warn').innerHTML = !st.configured
+      ? '<div class="warn">· Битрикс не настроен — снимок стадий не обновляется. Заполните <b>BITRIX_WEBHOOK_URL</b>.</div>'
+      : (!st.deals
+          ? '<div class="warn">· Снимок пуст. Нажмите «Обновить из Битрикса» — первый сбор может занять минуту.</div>'
+          : '');
+
+    document.getElementById('st-status').innerHTML = st.last_sync
+      ? `воронка ${esc(st.category_id)} · сделок ${esc(st.deals)} · обновлено ${when(st.last_sync)}`
+      : `воронка ${esc(st.category_id)} · снимок ещё не собирался`;
+
+    // Средний срок дела целиком — главная цифра, поэтому отдельными плитками.
+    const done = ov.done;
+    document.getElementById('st-overall').innerHTML = `
+      <div class="kpi-group"><div class="tiles">
+        <div class="tile"><b>${done.enough ? days(done.avg_days) : '—'}</b>
+          <span>Средний срок дела</span>
+          <span class="sub">${done.enough
+            ? 'медиана ' + days(done.median_days)
+            : 'мало завершённых дел: ' + esc(done.count)}</span></div>
+        <div class="tile"><b>${esc(done.count)}</b>
+          <span>Дошли до «${esc(ov.done_stage_name)}»</span>
+          <span class="sub">самое долгое: ${days(done.max_days)}</span></div>
+        <div class="tile"><b>${esc(ov.in_progress)}</b>
+          <span>В работе сейчас</span></div>
+        <div class="tile"><b>${esc(ov.failed)}</b>
+          <span>Отказы и провалы</span>
+          <span class="sub">в средний срок не входят</span></div>
+      </div></div>`;
+
+    const t = document.getElementById('st-rows');
+    const rows = d.funnel.stages;
+    if(!rows.length){
+      t.innerHTML = '<tr><td colspan="5" class="empty">Стадии не загружены. Нажмите «Обновить из Битрикса».</td></tr>';
+    } else {
+      t.innerHTML = rows.map(s => {
+        const k = STAGE_KIND[s.kind] || STAGE_KIND.work;
+        const mark = k.cls ? ` <span class="badge ${k.cls}" title="${esc(k.hint)}">${esc(k.hint)}</span>` : '';
+        const alt = s.alternative
+          ? ' <span class="badge b-neutral" title="Клиент проходит одну из процедур, не обе">одна из двух</span>' : '';
+        // Мало данных — показываем не цифру, а честное «мало данных»:
+        // среднее по двум делам это не статистика.
+        const avg = s.enough ? days(s.avg_days)
+          : `<span class="muted" title="Завершённых прохождений: ${esc(s.count)}">мало данных</span>`;
+        return `<tr>
+          <td>${esc(s.name)}${mark}${alt}</td>
+          <td>${s.current ? `<b>${esc(s.current)}</b>` : '<span class="muted">—</span>'}</td>
+          <td>${avg}</td>
+          <td class="muted">${s.enough ? days(s.median_days) : '—'}</td>
+          <td class="${s.longest_wait_days > 180 ? 'due-late' : 'muted'}">${days(s.longest_wait_days)}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    document.getElementById('st-note').innerHTML =
+      `Средний срок дела считается от создания до стадии «${esc(ov.done_stage_name)}» и только по дошедшим до неё: ` +
+      'у незавершённых срок ещё не истёк, и они занизили бы среднее. ' +
+      'Срок стадии — по завершённым прохождениям, без тех, кто на ней сейчас. ' +
+      `Если завершённых прохождений меньше ${esc(st.min_sample)}, пишем «мало данных» вместо цифры. ` +
+      'Медиана рядом со средним: одно затянувшееся дело сильно сдвигает среднее.';
+  }
+
+  function syncStages(btn){
+    return busy(btn, 'Обновляю…', async () => {
+      const r = await api('/stages/sync?force=true',{method:'POST'});
+      if(r.error) alert('Не удалось обновить: ' + r.error);
+      else if(r.skipped) alert('Пропущено: ' + r.skipped);
+      else alert(`Обновлено. Стадий: ${r.stages}, сделок: ${r.deals}, записей истории: ${r.history}.`);
+      loadStages();
+    });
   }
 
   // ---- Тренд оценок (inline SVG, без внешних библиотек) ----

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import complaints, db, quality
+from . import complaints, db, quality, stages
 from .config import settings
 from .security import (
     client_ip,
@@ -262,6 +262,23 @@ def admin_add_whitelist(body: WhitelistIn, _: str = Depends(get_admin)):
 def admin_delete_whitelist(phone: str, _: str = Depends(get_admin)):
     db.delete_whitelist(phone)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Стадии банкротства
+# ---------------------------------------------------------------------------
+@router.get("/api/stages")
+def admin_stages(_: str = Depends(get_admin)):
+    """Воронка, средний срок дела и состояние снимка — одним запросом:
+    на дашборде они всегда показываются вместе."""
+    return {"funnel": stages.funnel(), "overall": stages.overall(),
+            "status": stages.status()}
+
+
+@router.post("/api/stages/sync")
+def admin_stages_sync(force: bool = False, _: str = Depends(get_admin)):
+    """Обновить снимок из Битрикса вручную. force игнорирует интервал."""
+    return stages.sync(force=force)
 
 
 # ---------------------------------------------------------------------------

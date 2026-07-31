@@ -10,7 +10,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import complaints, db, quality
+from . import complaints, db, quality, stages
 from .admin import router as admin_router
 from .config import settings
 
@@ -25,6 +25,7 @@ db.init()
 # и главный сервис вызывает её же. Про эти таблицы он знать не должен.
 quality.init()
 complaints.init()
+stages.init()
 
 app = FastAPI(
     title="Фаворит · Админ-панель",
