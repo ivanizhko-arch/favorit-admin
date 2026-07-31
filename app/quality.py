@@ -90,6 +90,28 @@ def category(score: int) -> str:
     return "neutral"
 
 
+def _range_label(lo: int, hi: int) -> str:
+    """«8-10» или просто «8», если границы совпали. Иначе при узкой полосе
+    нейтральных в отчёте появлялось бы «8-8»."""
+    return str(lo) if lo >= hi else f"{lo}-{hi}"
+
+
+def grades() -> dict:
+    """Границы градации и готовые подписи. Интерфейс берёт их отсюда, чтобы
+    не хранить «0-6» в разметке: один раз уже разъехалось при переносе
+    семёрки в низкие."""
+    low_max = settings.qc_detractor_max
+    top_min = settings.qc_promoter_min
+    return {
+        "low_max": low_max,
+        "promoter_min": top_min,
+        "low_label": _range_label(0, low_max),
+        "neutral_label": _range_label(low_max + 1, top_min - 1),
+        "top_label": _range_label(top_min, 10),
+        "has_neutral": low_max + 1 <= top_min - 1,
+    }
+
+
 def _parse(iso: str) -> Optional[datetime]:
     try:
         return datetime.fromisoformat(iso)
@@ -329,17 +351,17 @@ def _report_text(year_month: str, data: dict, lows: list[dict]) -> tuple[str, st
     leader = data["leader"]
     title = f"Оценки клиентов за {year_month}: итоги и рейтинг менеджеров"
 
-    best = f"{settings.qc_promoter_min}-10"
-    worst = f"0-{settings.qc_detractor_max}"
+    g = grades()
+    best, worst = g["top_label"], g["low_label"]
     lines = [
         f"[B]Отчёт по оценкам клиентов за {year_month}[/B]", "",
         f"Всего оценок: {t['scores']}",
         f"Лучшие ({best}): {t['top']}",
         f"Низкие ({worst}): {t['low']}",
-        f"Нейтральные ({settings.qc_detractor_max + 1}-"
-        f"{settings.qc_promoter_min - 1}): {t['neutral']}",
-        f"Итог по отделу: {t['net']:+d}", "",
     ]
+    if g["has_neutral"]:
+        lines.append(f"Нейтральные ({g['neutral_label']}): {t['neutral']}")
+    lines += [f"Итог по отделу: {t['net']:+d}", ""]
 
     if leader:
         lines += [
@@ -493,7 +515,8 @@ def list_scores(kind: str = "", year_month: str = "",
         d = dict(r)
         d["category"] = category(int(d["score"]))
         items.append(d)
-    return {"items": items, "total": int(total), "limit": limit, "offset": offset}
+    return {"items": items, "total": int(total), "limit": limit,
+            "offset": offset, "grades": grades()}
 
 
 def status() -> dict:
@@ -520,10 +543,7 @@ def status() -> dict:
         "stuck_tasks": int(stuck),
         "last_report": dict(last) if last else None,
         "due_month": due_report_month(),
-        "grades": {
-            "low_max": settings.qc_detractor_max,
-            "promoter_min": settings.qc_promoter_min,
-        },
+        "grades": grades(),
     }
 
 

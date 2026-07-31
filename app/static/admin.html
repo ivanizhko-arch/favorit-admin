@@ -273,22 +273,19 @@
     </div>
     <div id="q-leader"></div>
     <table>
-      <thead><tr><th>#</th><th>Менеджер</th><th>Итог</th><th>Лучших (9-10)</th><th>Низких (0-6)</th><th>Нейтральных</th></tr></thead>
+      <thead><tr><th>#</th><th>Менеджер</th><th>Итог</th><th id="q-th-top">Лучших</th><th id="q-th-low">Низких</th><th>Нейтральных</th></tr></thead>
       <tbody id="q-rows"></tbody>
     </table>
-    <p class="muted" style="margin-top:10px">
-      Итог = количество лучших оценок минус количество низких. Нейтральные (7-8) не учитываются.
-      Лидером может стать только менеджер, получивший хотя бы одну оценку 9-10.
-    </p>
+    <p class="muted" id="q-rule" style="margin-top:10px"></p>
 
     <!-- ОЦЕНКИ -->
     <div class="section-title" id="s-nps">⭐ Оценки клиентов (после «Долги списаны»)</div>
     <div class="filters">
       <select id="n-kind" onchange="resetPage('nps');loadNps()">
         <option value="">Все оценки</option>
-        <option value="low">Требуют контроля (0-6)</option>
-        <option value="neutral">Нейтральные (7-8)</option>
-        <option value="top">Лучшие (9-10)</option>
+        <option value="low">Требуют контроля</option>
+        <option value="neutral">Нейтральные</option>
+        <option value="top">Лучшие</option>
       </select>
       <button class="btn-ghost" onclick="loadNps()">Обновить</button>
     </div>
@@ -798,6 +795,29 @@
   // ---- Оценки клиентов ----
   const SCORE_BADGE = { low:'b-low', neutral:'b-neutral', top:'b-ok' };
 
+  // Единственное место, где диапазоны оценок превращаются в текст. Всё
+  // остальное берёт их отсюда, поэтому смена порога в настройках сервера
+  // сразу отражается в подписях, а не оставляет их врать.
+  function applyGrades(g){
+    const opt = (v, text) => {
+      const o = document.querySelector('#n-kind option[value="'+v+'"]');
+      if(o) o.textContent = text;
+    };
+    opt('low',     `Требуют контроля (${g.low_label})`);
+    opt('neutral', `Нейтральные (${g.neutral_label})`);
+    opt('top',     `Лучшие (${g.top_label})`);
+    // Заголовки рейтинга менеджеров и подпись под ним.
+    const th = document.getElementById('q-th-top');
+    if(th) th.textContent = `Лучших (${g.top_label})`;
+    const tl = document.getElementById('q-th-low');
+    if(tl) tl.textContent = `Низких (${g.low_label})`;
+    const note = document.getElementById('q-rule');
+    if(note) note.innerHTML =
+      `Итог = количество лучших оценок (${esc(g.top_label)}) минус количество низких (${esc(g.low_label)}). ` +
+      (g.has_neutral ? `Нейтральные (${esc(g.neutral_label)}) не учитываются. ` : '') +
+      `Лидером может стать только менеджер, получивший хотя бы одну оценку ${esc(g.top_label)}.`;
+  }
+
   async function loadNps(){
     const params = new URLSearchParams({
       kind: document.getElementById('n-kind').value,
@@ -805,11 +825,16 @@
       offset: pages.nps * PAGE,
     });
     const data = await api('/nps?'+params);
+
+    // Границы градации приходят с сервера: держать «0-6» в разметке значит
+    // однажды получить подпись, не совпадающую с настройкой.
+    if(data.grades) applyGrades(data.grades);
+
     const t = document.getElementById('nps-rows');
     if(!data.items.length){
       t.innerHTML = `<tr><td colspan="6" class="empty">${
         data.total === 0
-          ? 'Пока нет оценок. Низкие (0-6) появятся здесь, как только основной сервис начнёт их сохранять.'
+          ? `Пока нет оценок. Низкие (${esc((data.grades||{}).low_label||'')}) появятся здесь, как только основной сервис начнёт их сохранять.`
           : 'Под фильтр ничего не подходит.'}</td></tr>`;
     } else {
       t.innerHTML = data.items.map(n => {
@@ -927,6 +952,8 @@
       api('/quality/status'),
       api('/quality/rating?month='+encodeURIComponent(month)),
     ]);
+
+    if(st.grades) applyGrades(st.grades);
 
     // Молча не работающая автоматика хуже отсутствующей — говорим прямо,
     // чего не хватает в настройках.
