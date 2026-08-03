@@ -1,11 +1,12 @@
 """Админ-панель приложения: API для управления пользователями + сама страница."""
 import logging
 import os
+import secrets
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import db, quality
+from . import complaints, db, quality, stages
 from .config import settings
 from .security import (
     client_ip,
@@ -34,6 +35,17 @@ class BlockIn(BaseModel):
 class WhitelistIn(BaseModel):
     phone: str
     label: str = ""
+
+
+class ComplaintIn(BaseModel):
+    email: str
+    category: str
+    text: str
+
+
+class ComplaintStatusIn(BaseModel):
+    status: str
+    resolution: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +262,103 @@ def admin_add_whitelist(body: WhitelistIn, _: str = Depends(get_admin)):
 def admin_delete_whitelist(phone: str, _: str = Depends(get_admin)):
     db.delete_whitelist(phone)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Стадии банкротства
+# ---------------------------------------------------------------------------
+@router.get("/api/stages")
+def admin_stages(_: str = Depends(get_admin)):
+    """Воронка, средний срок дела и состояние снимка — одним запросом:
+    на дашборде они всегда показываются вместе."""
+    return {"funnel": stages.funnel(), "overall": stages.overall(),
+            "status": stages.status()}
+
+
+@router.post("/api/stages/sync")
+def admin_stages_sync(force: bool = False, _: str = Depends(get_admin)):
+    """Обновить снимок из Битрикса вручную. force игнорирует интервал."""
+    return stages.sync(force=force)
+
+
+# ---------------------------------------------------------------------------
+# Жалобы
+# ---------------------------------------------------------------------------
+@router.get("/api/complaints")
+def admin_complaints(
+    status_filter: str = "",
+    category: str = "",
+    q: str = "",
+    overdue: bool = False,
+    limit: int = 50,
+    offset: int = 0,
+    _: str = Depends(get_admin),
+):
+    return complaints.list_complaints(
+        status=status_filter, category=category, query=q,
+        overdue_only=overdue, limit=limit, offset=offset)
+
+
+@router.post("/api/complaints/{complaint_id}/status")
+def admin_complaint_status(complaint_id: int, body: ComplaintStatusIn,
+                           _: str = Depends(get_admin)):
+    try:
+        return complaints.set_status(complaint_id, body.status, body.resolution)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Служебный эндпоинт для основного backend
+#
+# Жалобу подаёт клиент в приложении, то есть запись инициирует favorit-app.
+# Он не пишет в таблицу напрямую: тогда правила подачи (одна открытая на
+# тему, паузы, лимиты) пришлось бы продублировать там, и две копии политики
+# неизбежно разъехались бы. Вместо этого он передаёт жалобу сюда, а все
+# проверки остаются в одном месте — здесь.
+#
+# Nginx НЕ должен проксировать /admin/internal/* наружу, см. README.
+# ---------------------------------------------------------------------------
+def require_internal(request: Request) -> None:
+    token = settings.internal_api_token.strip()
+    if not token:
+        # Fail closed: незаполненная настройка не должна означать открытый
+        # приём жалоб от кого угодно.
+        raise HTTPException(status_code=503,
+                            detail="Служебный доступ не настроен")
+    sent = request.headers.get("x-internal-token", "")
+    # Сравниваем байты, а не строки: compare_digest на строках требует ASCII
+    # и бросает исключение на чужом заголовке с кириллицей — вместо отказа
+    # получался бы 500, то есть внешний запрос ронял бы обработчик.
+    if not secrets.compare_digest(sent.encode("utf-8"), token.encode("utf-8")):
+        log.warning("Служебный запрос с неверным токеном, IP %s",
+                    client_ip(request))
+        raise HTTPException(status_code=403, detail="Доступ запрещён")
+
+
+@router.post("/internal/complaints", status_code=201)
+def internal_submit_complaint(body: ComplaintIn, request: Request):
+    require_internal(request)
+    try:
+        return complaints.submit(body.email, body.category, body.text)
+    except complaints.Rejected as e:
+        # 409, а не 400: запрос корректен, просто сейчас подавать нельзя.
+        # Текст показывается клиенту в приложении как есть.
+        raise HTTPException(status_code=409,
+                            detail={"message": e.message, "reason": e.reason})
+
+
+@router.get("/internal/complaints/categories")
+def internal_categories(request: Request):
+    """Список тем для формы в приложении — чтобы не хардкодить их дважды."""
+    require_internal(request)
+    return {"categories": [{"code": k, "label": v}
+                           for k, v in complaints.CATEGORIES.items()],
+            "answer_days": settings.complaint_answer_days,
+            "text_min": settings.complaint_text_min,
+            "text_max": settings.complaint_text_max}
 
 
 @router.get("")

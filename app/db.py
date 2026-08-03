@@ -11,6 +11,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
+from . import store
 from .config import settings
 
 
@@ -24,9 +25,8 @@ def norm_phone(s: str) -> str:
 
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(settings.db_path)
-    c.row_factory = sqlite3.Row
-    return c
+    # Настройки соединения общие для всех модулей — см. store.connect().
+    return store.connect()
 
 
 def init() -> None:
@@ -496,8 +496,13 @@ def list_collectors(
     if query:
         digits = re.sub(r"\D", "", query)
         if digits:
+            # Номер хранится нормализованным — последние 10 цифр без 8 и +7.
+            # Запрос приводим так же, иначе «8 495 123-45-67» и «+7 495...»
+            # дают 11 цифр и не находят ничего: раньше такой поиск срабатывал
+            # лишь случайно, совпадая с исходной строкой в поле raw.
+            needle = digits[-10:] if len(digits) >= 10 else digits
             where.append("(phone LIKE ? ESCAPE '\\' OR raw LIKE ? ESCAPE '\\')")
-            args += [_like(digits), _like(query)]
+            args += [_like(needle), _like(query)]
         else:
             where.append("raw LIKE ? ESCAPE '\\'")
             args.append(_like(query))

@@ -23,7 +23,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app import quality  # noqa: E402
+from app import complaints, db, quality, stages  # noqa: E402
 
 
 def main() -> int:
@@ -40,7 +40,13 @@ def main() -> int:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # Все таблицы, к которым воркер обращается. Раньше поднималась только
+    # схема quality, и на свежей машине воркер падал с «no such table»:
+    # таймер может сработать раньше, чем веб-сервис поднимется хоть раз.
+    db.init()
     quality.init()
+    complaints.init()
+    stages.init()
 
     if args.dry_run:
         print(json.dumps(quality.status(), ensure_ascii=False, indent=2))

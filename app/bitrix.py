@@ -138,6 +138,81 @@ def resolve_manager(email: str) -> tuple[int, str]:
 # ---------------------------------------------------------------------------
 # Задачи
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Сделки и стадии
+# ---------------------------------------------------------------------------
+def _paged(method: str, params: dict, limit: int = 10000) -> list:
+    """Обойти постраничный список. Битрикс отдаёт по 50 записей и возвращает
+    смещение следующей страницы в `next`; без обхода мы увидели бы только
+    первые 50 сделок и посчитали бы метрики по ним."""
+    out: list = []
+    start = 0
+    while True:
+        page = call(method, {**params, "start": start})
+        # Часть методов возвращает список, часть — объект с `items`.
+        items = page.get("items") if isinstance(page, dict) else page
+        items = items or []
+        out.extend(items)
+        if len(out) >= limit or len(items) == 0:
+            break
+        start += len(items)
+        # Битрикс перестаёт отдавать данные, когда страница неполная.
+        if len(items) < 50:
+            break
+    return out[:limit]
+
+
+def deal_stages(category_id: int) -> list[dict]:
+    """Справочник стадий направления: id, название, порядок, семантика.
+
+    Порядок берём из Битрикса (SORT), а не придумываем: воронка должна
+    показываться в том же виде, в каком её видят в CRM.
+    """
+    res = call("crm.dealcategory.stage.list", {"id": int(category_id)})
+    rows = []
+    for s in (res or []):
+        rows.append({
+            "stage_id": s.get("STATUS_ID") or s.get("ID"),
+            "name": s.get("NAME") or "",
+            "sort": int(s.get("SORT") or 0),
+            "semantics": s.get("SEMANTICS") or "",
+        })
+    return rows
+
+
+def deals(category_id: int, modified_since: str = "",
+          limit: int = 2000) -> list[dict]:
+    """Сделки направления. `modified_since` — для инкрементального обновления."""
+    flt: dict = {"CATEGORY_ID": int(category_id)}
+    if modified_since:
+        flt[">=DATE_MODIFY"] = modified_since
+    return _paged("crm.deal.list", {
+        "filter": flt,
+        "order": {"DATE_MODIFY": "ASC"},
+        "select": ["ID", "STAGE_ID", "CONTACT_ID", "ASSIGNED_BY_ID",
+                   "DATE_CREATE", "DATE_MODIFY", "CLOSEDATE", "TITLE"],
+    }, limit=limit)
+
+
+def stage_history(category_id: int, since: str = "",
+                  limit: int = 20000) -> list[dict]:
+    """История переходов по стадиям (entityTypeId=2 — сделки).
+
+    Из неё считается время на стадии: запись фиксирует момент входа в стадию,
+    а длительность — это промежуток до следующей записи по той же сделке.
+    """
+    flt: dict = {"CATEGORY_ID": int(category_id)}
+    if since:
+        flt[">=CREATED_TIME"] = since
+    return _paged("crm.stagehistory.list", {
+        "entityTypeId": 2,
+        "filter": flt,
+        "order": {"CREATED_TIME": "ASC"},
+        "select": ["ID", "OWNER_ID", "CREATED_TIME", "STAGE_ID",
+                   "STAGE_SEMANTIC_ID"],
+    }, limit=limit)
+
+
 def create_task(title: str, description: str, responsible_id: int,
                 deadline_iso: str = "") -> int:
     """Поставить задачу. Возвращает ID задачи (0 — если некому ставить)."""

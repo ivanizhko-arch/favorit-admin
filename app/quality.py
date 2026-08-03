@@ -21,16 +21,14 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from . import bitrix
+from . import bitrix, store
 from .config import settings
 
 log = logging.getLogger(__name__)
 
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(settings.db_path)
-    c.row_factory = sqlite3.Row
-    return c
+    return store.connect()
 
 
 def _now_iso() -> str:
@@ -82,12 +80,41 @@ def init() -> None:
 # Градация
 # ---------------------------------------------------------------------------
 def category(score: int) -> str:
-    """low — в контроль качества, top — в рейтинг, neutral — никуда."""
+    """low — в контроль качества, top — в рейтинг, neutral — никуда.
+
+    invalid — оценка вне шкалы 0-10. Основной сервис диапазон не проверяет,
+    и без этой ветки запись со значением 42 попадала бы в рейтинг менеджера
+    как отличная, а отрицательная — порождала задачу контролю качества.
+    """
+    if score < 0 or score > 10:
+        return "invalid"
     if score <= settings.qc_detractor_max:
         return "low"
     if score >= settings.qc_promoter_min:
         return "top"
     return "neutral"
+
+
+def _range_label(lo: int, hi: int) -> str:
+    """«8-10» или просто «8», если границы совпали. Иначе при узкой полосе
+    нейтральных в отчёте появлялось бы «8-8»."""
+    return str(lo) if lo >= hi else f"{lo}-{hi}"
+
+
+def grades() -> dict:
+    """Границы градации и готовые подписи. Интерфейс берёт их отсюда, чтобы
+    не хранить «0-6» в разметке: один раз уже разъехалось при переносе
+    семёрки в низкие."""
+    low_max = settings.qc_detractor_max
+    top_min = settings.qc_promoter_min
+    return {
+        "low_max": low_max,
+        "promoter_min": top_min,
+        "low_label": _range_label(0, low_max),
+        "neutral_label": _range_label(low_max + 1, top_min - 1),
+        "top_label": _range_label(top_min, 10),
+        "has_neutral": low_max + 1 <= top_min - 1,
+    }
 
 
 def _parse(iso: str) -> Optional[datetime]:
@@ -159,7 +186,9 @@ def _tasks_due() -> list[dict]:
     with _conn() as c:
         rows = c.execute(
             "SELECT * FROM nps_followup "
-            "WHERE score <= ? AND qc_task_id = 0 AND attempts < ? "
+            # score >= 0 отсекает записи вне шкалы: по оценке «-3» задача
+            # контролю качества не нужна, это битые данные, а не недовольство.
+            "WHERE score BETWEEN 0 AND ? AND qc_task_id = 0 AND attempts < ? "
             "AND score_created_at >= ? "
             "ORDER BY nps_id",
             (settings.qc_detractor_max, settings.qc_task_max_attempts, cutoff),
@@ -260,11 +289,17 @@ def rating(year_month: str) -> dict:
         ).fetchall()
 
     by_manager: dict[int, dict] = {}
-    totals = {"top": 0, "neutral": 0, "low": 0, "net": 0, "scores": 0}
+    totals = {"top": 0, "neutral": 0, "low": 0, "net": 0, "scores": 0,
+              "invalid": 0}
 
     for r in rows:
         mid = int(r["manager_id"] or 0)
         cat = category(int(r["score"]))
+        if cat == "invalid":
+            # Битая запись не должна ни помогать менеджеру, ни вредить ему.
+            # Считаем отдельно, чтобы её было видно, а не молча выбрасываем.
+            totals["invalid"] += 1
+            continue
         m = by_manager.setdefault(mid, {
             "manager_id": mid,
             "manager_name": r["manager_name"] or ("" if mid else "Не определён"),
@@ -329,17 +364,17 @@ def _report_text(year_month: str, data: dict, lows: list[dict]) -> tuple[str, st
     leader = data["leader"]
     title = f"Оценки клиентов за {year_month}: итоги и рейтинг менеджеров"
 
-    best = f"{settings.qc_promoter_min}-10"
-    worst = f"0-{settings.qc_detractor_max}"
+    g = grades()
+    best, worst = g["top_label"], g["low_label"]
     lines = [
         f"[B]Отчёт по оценкам клиентов за {year_month}[/B]", "",
         f"Всего оценок: {t['scores']}",
         f"Лучшие ({best}): {t['top']}",
         f"Низкие ({worst}): {t['low']}",
-        f"Нейтральные ({settings.qc_detractor_max + 1}-"
-        f"{settings.qc_promoter_min - 1}): {t['neutral']}",
-        f"Итог по отделу: {t['net']:+d}", "",
     ]
+    if g["has_neutral"]:
+        lines.append(f"Нейтральные ({g['neutral_label']}): {t['neutral']}")
+    lines += [f"Итог по отделу: {t['net']:+d}", ""]
 
     if leader:
         lines += [
@@ -370,6 +405,23 @@ def _report_text(year_month: str, data: dict, lows: list[dict]) -> tuple[str, st
             who = r["manager_name"] or "менеджер не определён"
             lines.append(f"· {r['score']}/10 — {r['email']} ({when}, {who}{task})")
 
+    # Жалобы — тот же контур качества, руководителю нужны обе картины сразу.
+    from . import complaints
+    cmp_rows = complaints.month_summary(year_month)
+    if cmp_rows:
+        overdue = [r for r in cmp_rows
+                   if r["status"] in complaints.OPEN_STATUSES]
+        lines += ["", f"[B]Жалобы ({len(cmp_rows)})[/B]"]
+        for r in cmp_rows:
+            when = (r["created_at"] or "").replace("T", " ")[:16]
+            task = f", задача №{r['qc_task_id']}" if r["qc_task_id"] else ""
+            lines.append(f"· {r['category_label']} — {r['email']} "
+                         f"({when}, {r['status_label']}{task})")
+        if overdue:
+            lines.append(f"Не закрыто на момент отчёта: {len(overdue)}.")
+    else:
+        lines += ["", "[B]Жалобы[/B]", "За месяц жалоб не поступало."]
+
     lines += ["", f"Итог = количество лучших оценок ({best}) минус количество "
               f"низких ({worst}). Нейтральные не учитываются.",
               "Отчёт сформирован админ-панелью автоматически."]
@@ -388,8 +440,12 @@ def send_monthly_report(year_month: str, force: bool = False) -> dict:
 
     recipients = settings.monthly_report_recipients
     if not bitrix.configured() or not recipients:
+        # Это не сбой отправки, а незаконченная настройка. Помечаем как
+        # пропуск: иначе на ненастроенном сервере воркер возвращал бы ошибку
+        # каждые 10 минут, и systemd показывал бы юнит упавшим — за таким
+        # «алертом» перестают следить, и настоящий сбой пройдёт незамеченным.
         return {"ok": False, "already_sent": False,
-                "error": "Не задан BITRIX_WEBHOOK_URL или ID руководителей",
+                "skipped": "не задан BITRIX_WEBHOOK_URL или ID руководителей",
                 "preview": {"title": title, "body": body}}
 
     task_ids, errors = [], []
@@ -476,7 +532,8 @@ def list_scores(kind: str = "", year_month: str = "",
         d = dict(r)
         d["category"] = category(int(d["score"]))
         items.append(d)
-    return {"items": items, "total": int(total), "limit": limit, "offset": offset}
+    return {"items": items, "total": int(total), "limit": limit,
+            "offset": offset, "grades": grades()}
 
 
 def status() -> dict:
@@ -503,17 +560,23 @@ def status() -> dict:
         "stuck_tasks": int(stuck),
         "last_report": dict(last) if last else None,
         "due_month": due_report_month(),
-        "grades": {
-            "low_max": settings.qc_detractor_max,
-            "promoter_min": settings.qc_promoter_min,
-        },
+        "grades": grades(),
     }
 
 
 def run_worker() -> dict:
-    """Один полный прогон: разобрать оценки, поставить задачи, при
+    """Один полный прогон: разобрать оценки и жалобы, поставить задачи, при
     наступлении срока отправить месячный отчёт."""
-    result = {"linked": process_new_scores(), "tasks": create_pending_tasks()}
+    from . import complaints, stages  # локальный импорт: те модули ничего
+                                      # не знают про quality, связь только тут
+    result = {
+        "linked": process_new_scores(),
+        "tasks": create_pending_tasks(),
+        "complaints": complaints.process_pending(),
+        # Снимок стадий обновляется по своему расписанию (раз в час),
+        # частые вызовы он отбрасывает сам.
+        "stages": stages.sync(),
+    }
     ym = due_report_month()
     result["report"] = send_monthly_report(ym) if ym else {"skipped": True}
     return result
