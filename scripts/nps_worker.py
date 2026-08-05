@@ -23,7 +23,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app import complaints, db, quality, stages  # noqa: E402
+from app import complaints, db, quality, stages, supervision  # noqa: E402
 
 
 def main() -> int:
@@ -47,6 +47,7 @@ def main() -> int:
     quality.init()
     complaints.init()
     stages.init()
+    supervision.init()
 
     if args.dry_run:
         print(json.dumps(quality.status(), ensure_ascii=False, indent=2))

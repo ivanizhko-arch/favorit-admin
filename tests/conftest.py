@@ -25,7 +25,8 @@ os.environ.setdefault("INTERNAL_API_TOKEN", "test-internal-token")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import complaints, db, quality, security, stages, store  # noqa: E402
+from app import (complaints, db, quality, security, stages,  # noqa: E402
+                 store, supervision)
 from app.config import settings  # noqa: E402
 from app.main import app  # noqa: E402
 
@@ -42,6 +43,7 @@ def fresh_db(tmp_path, monkeypatch):
     quality.init()
     complaints.init()
     stages.init()
+    supervision.init()
     yield tmp_path / "favorit.db"
 
 

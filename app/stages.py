@@ -120,6 +120,15 @@ def init() -> None:
                 value TEXT NOT NULL
             )
         """)
+        # Имена сотрудников. Без кэша таблица менеджеров дёргала бы Битрикс
+        # на каждую загрузку страницы — по запросу на человека.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS bitrix_user (
+                user_id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
 
 
 def _state(key: str) -> str:
@@ -237,8 +246,90 @@ def sync(force: bool = False) -> dict:
     if newest_h:
         _set_state("history_to", newest_h)
 
+    _sync_user_names()
     _set_state("last_sync", now)
     return result
+
+
+def _sync_user_names() -> int:
+    """Дотянуть имена ответственных, которых ещё не знаем.
+
+    Спрашиваем только новых: имена меняются редко, а каждый запрос — поход
+    в Битрикс. Неудача не критична — в интерфейсе покажется «ID 101».
+    """
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT DISTINCT d.assigned_by_id FROM deal_snapshot d "
+            "LEFT JOIN bitrix_user u ON u.user_id = d.assigned_by_id "
+            "WHERE d.assigned_by_id != 0 AND u.user_id IS NULL").fetchall()
+    added = 0
+    for r in rows:
+        uid = int(r["assigned_by_id"])
+        try:
+            name = bitrix.user_name(uid)
+        except Exception as e:
+            # Имя — украшение таблицы. Что бы ни случилось при его получении,
+            # синхронизация сделок из-за этого падать не должна.
+            log.warning("Имя сотрудника %s не получено: %s", uid, e)
+            continue
+        if not name:
+            continue
+        with _conn() as c:
+            c.execute("INSERT INTO bitrix_user (user_id, name, updated_at) "
+                      "VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET "
+                      "name = excluded.name, updated_at = excluded.updated_at",
+                      (uid, name, _iso(_now())))
+        added += 1
+    return added
+
+
+def user_names() -> dict:
+    """Кэш имён: {id: имя}. Пусто — покажем «ID N», это не повод падать."""
+    with _conn() as c:
+        return {int(r["user_id"]): r["name"]
+                for r in c.execute("SELECT user_id, name FROM bitrix_user")}
+
+
+def stage_names() -> dict:
+    with _conn() as c:
+        return {r["stage_id"]: r["name"]
+                for r in c.execute("SELECT stage_id, name FROM deal_stage_dict")}
+
+
+def stage_medians() -> dict:
+    """Медиана прохождения по каждой стадии — основа порога «зависания».
+    У каждой стадии своя норма, взятая из ваших же данных."""
+    out = {}
+    for stage_id, values in _passes().items():
+        if len(values) >= MIN_SAMPLE:
+            out[stage_id] = statistics.median(values)
+    return out
+
+
+def deals_on_current_stage() -> list[dict]:
+    """Дела и сколько дней каждое стоит на своей нынешней стадии."""
+    now = _now()
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT s.deal_id, s.stage_id, s.assigned_by_id, s.created_at, "
+            "       MAX(h.entered_at) entered "
+            "FROM deal_snapshot s LEFT JOIN deal_stage_history h "
+            "  ON h.deal_id = s.deal_id AND h.stage_id = s.stage_id "
+            "GROUP BY s.deal_id").fetchall()
+    out = []
+    for r in rows:
+        entered = _parse(r["entered"]) or _parse(r["created_at"])
+        if not entered:
+            continue
+        out.append({
+            "deal_id": int(r["deal_id"]),
+            "stage_id": r["stage_id"],
+            "manager_id": int(r["assigned_by_id"] or 0),
+            "entered_at": _iso(entered),
+            "days_on_stage": round((now - entered).total_seconds() / 86400, 1),
+            "created_at": r["created_at"],
+        })
+    return out
 
 
 # ---------------------------------------------------------------------------

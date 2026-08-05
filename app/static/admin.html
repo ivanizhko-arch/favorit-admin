@@ -299,6 +299,43 @@
       <span id="n-count"></span>
     </div>
 
+    <!-- ОТДЕЛ СОПРОВОЖДЕНИЯ: ОТКАЗЫ -->
+    <div class="section-title" id="s-refusals">📉 Отказы по менеджерам</div>
+    <div id="sv-warn"></div>
+    <table>
+      <thead><tr><th>Менеджер</th><th>Дел всего</th><th>В работе</th><th>Отказов</th><th>Доля отказов</th><th>Из-за менеджера</th><th>Причина не выяснена</th></tr></thead>
+      <tbody id="sv-rows"></tbody>
+    </table>
+    <p class="muted" id="sv-note" style="margin-top:10px"></p>
+
+    <div class="filters" style="margin-top:18px">
+      <select id="rf-manager" onchange="resetPage('rf');loadRefusals()">
+        <option value="0">Все менеджеры</option>
+      </select>
+      <select id="rf-reason" onchange="resetPage('rf');loadRefusals()">
+        <option value="">Все причины</option>
+      </select>
+      <label class="chk"><input type="checkbox" id="rf-unknown" onchange="resetPage('rf');loadRefusals()"> Только без причины</label>
+      <button class="btn-ghost" onclick="loadRefusals()">Обновить</button>
+    </div>
+    <table>
+      <thead><tr><th>Сделка</th><th>Менеджер</th><th>Стадия отказа</th><th>Прожил</th><th>Причина</th><th>Действия</th></tr></thead>
+      <tbody id="rf-rows"></tbody>
+    </table>
+    <div class="pager">
+      <button class="btn-ghost" id="rf-prev" onclick="page('rf',-1);loadRefusals()">← Назад</button>
+      <button class="btn-ghost" id="rf-next" onclick="page('rf',1);loadRefusals()">Вперёд →</button>
+      <span id="rf-count"></span>
+    </div>
+
+    <!-- ЗАВИСШИЕ ДЕЛА -->
+    <div class="section-title" id="s-stuck">⏳ Дела в зоне риска</div>
+    <p class="muted" id="st-risk-note" style="margin:-4px 0 12px"></p>
+    <table>
+      <thead><tr><th>Сделка</th><th>Менеджер</th><th>Стадия</th><th>Стоит</th><th>Норма</th><th>Превышение</th><th>Перехват</th></tr></thead>
+      <tbody id="risk-rows"></tbody>
+    </table>
+
     <!-- ЖАЛОБЫ -->
     <div class="section-title" id="s-complaints">📣 Жалобы клиентов</div>
     <div id="cm-warn"></div>
@@ -353,7 +390,7 @@
   function fmtPhone(p){ return p ? '+7 '+esc(p) : '—'; }
 
   // ---- Пагинация ----
-  const pages = {users:0, col:0, nps:0, cmp:0};
+  const pages = {users:0, col:0, nps:0, cmp:0, rf:0};
   function resetPage(k){ pages[k] = 0; }
   function page(k, delta){ pages[k] = Math.max(0, pages[k] + delta); }
   function renderPager(k, prefix, data){
@@ -443,7 +480,8 @@
   const TAB_LOADERS = {
     dashboard: () => { loadStats(); loadStages(); loadTrend(); },
     clients:   () => { loadUsers(); loadCollectors(); loadWhitelist(); },
-    quality:   () => { loadQuality(); loadNps(); loadComplaints(); },
+    quality:   () => { loadQuality(); loadNps(); loadSupervision();
+                       loadRefusals(); loadStuck(); loadComplaints(); },
   };
   const TAB_NAMES = Object.keys(TAB_LOADERS);
   const tabLoaded = {};
@@ -861,6 +899,144 @@
       }).join('');
     }
     renderPager('nps','n',data);
+  }
+
+  // ---- Отдел сопровождения: отказы ----
+  let svReasons = {}, svSources = {}, rfFiltersFilled = false;
+
+  // Доля отказов важнее числа: у менеджера с 50 делами и 10 отказами это
+  // 20 %, у менеджера с 10 делами и 5 отказами — 50 %. По абсолютным числам
+  // первый выглядит вдвое хуже, хотя работает вдвое лучше.
+  function rateClass(rate){
+    return rate >= 40 ? 'var(--danger)' : rate >= 20 ? 'var(--gold)' : 'var(--ok)';
+  }
+
+  async function loadSupervision(){
+    const d = await api('/supervision');
+    const m = d.managers, st = d.status;
+    svReasons = m.reasons || {}; svSources = m.sources || {};
+
+    const problems = [];
+    if(!st.bitrix_configured) problems.push('не задан <b>BITRIX_WEBHOOK_URL</b> — задачи не ставятся');
+    if(!st.qc_head_set) problems.push('не задан <b>BITRIX_QC_HEAD_ID</b> — некому выяснять причины отказов');
+    if(!st.support_head_set) problems.push('не задан <b>BITRIX_SUPPORT_HEAD_ID</b> — некому перехватывать зависшие дела');
+    if(st.reason_unknown) problems.push(`причина не выяснена у <b>${esc(st.reason_unknown)}</b> отказов`);
+    document.getElementById('sv-warn').innerHTML = problems.length
+      ? `<div class="warn">${problems.map(p => '· '+p).join('<br>')}</div>` : '';
+
+    const t = document.getElementById('sv-rows');
+    if(!m.managers.length){
+      t.innerHTML = '<tr><td colspan="7" class="empty">Сделок в снимке нет. Обновите данные из Битрикса на вкладке «Дашборд».</td></tr>';
+    } else {
+      t.innerHTML = m.managers.map(x => `<tr>
+        <td>${esc(x.manager_name)}</td>
+        <td>${esc(x.deals)}</td>
+        <td class="muted">${esc(x.in_progress)}</td>
+        <td>${x.refusals ? `<span class="badge b-low">${esc(x.refusals)}</span>` : '<span class="muted">—</span>'}</td>
+        <td><b style="color:${rateClass(x.refusal_rate)}">${esc(x.refusal_rate)}%</b></td>
+        <td>${x.manager_fault ? `<span class="badge b-low">${esc(x.manager_fault)}</span>` : '<span class="muted">—</span>'}</td>
+        <td class="muted">${x.reason_unknown || '—'}</td>
+      </tr>`).join('');
+    }
+
+    const tot = m.totals;
+    document.getElementById('sv-note').innerHTML =
+      `Всего дел ${esc(tot.deals)}, отказов ${esc(tot.refusals)} (${esc(tot.refusal_rate)}%). ` +
+      'Доля считается от всех дел менеджера, а не только от закрытых. ' +
+      'В колонке «Из-за менеджера» — только отказы с причиной «Не устроил менеджер»: ' +
+      'остальные причины к его работе не относятся и на оценку влиять не должны.';
+
+    // Фильтр по менеджерам наполняем отсюда — список тот же.
+    if(!rfFiltersFilled){
+      const sel = document.getElementById('rf-manager');
+      sel.innerHTML = '<option value="0">Все менеджеры</option>' +
+        m.managers.map(x => `<option value="${esc(x.manager_id)}">${esc(x.manager_name)}</option>`).join('');
+      const rs = document.getElementById('rf-reason');
+      rs.innerHTML = '<option value="">Все причины</option>' +
+        Object.entries(svReasons).map(([k,v]) => `<option value="${esc(k)}">${esc(v)}</option>`).join('');
+      rfFiltersFilled = true;
+    }
+  }
+
+  async function loadRefusals(){
+    const params = new URLSearchParams({
+      manager_id: document.getElementById('rf-manager').value,
+      reason: document.getElementById('rf-reason').value,
+      unknown_only: document.getElementById('rf-unknown').checked,
+      limit: PAGE,
+      offset: pages.rf * PAGE,
+    });
+    const data = await api('/supervision/refusals?'+params);
+    const t = document.getElementById('rf-rows');
+    if(!data.items.length){
+      t.innerHTML = `<tr><td colspan="6" class="empty">${
+        data.total === 0 ? 'Отказов не найдено.' : 'Под фильтры ничего не подходит.'}</td></tr>`;
+    } else {
+      t.innerHTML = data.items.map(r => {
+        // Пустая причина — не «нет данных», а «не выяснено»: это задача,
+        // а не свойство отказа, поэтому кнопка прямо в строке.
+        const reason = r.reason
+          ? `<span class="badge ${r.manager_fault ? 'b-low' : 'b-neutral'}">${esc(r.reason_label)}</span>` +
+            (r.source_label ? ` <span class="muted" title="кто назвал причину">${esc(r.source_label)}</span>` : '') +
+            (r.comment ? `<div class="cm-text">${esc(r.comment)}</div>` : '')
+          : (r.qc_task_id
+              ? `<span class="badge b-gold">Выясняется, задача №${esc(r.qc_task_id)}</span>`
+              : '<span class="badge b-gold">Не выяснена</span>');
+        return `<tr class="${r.manager_fault ? 'row-low' : ''}">
+          <td class="mono">№${esc(r.deal_id)}</td>
+          <td>${esc(r.manager_name)}</td>
+          <td class="muted">${esc(r.stage_name)}</td>
+          <td class="muted">${r.days_lived === null ? '—' : esc(r.days_lived) + ' дн.'}</td>
+          <td>${reason}</td>
+          <td><button class="btn-ghost" onclick="askReason(${r.deal_id})">${r.reason ? 'Изменить' : 'Указать причину'}</button></td>
+        </tr>`;
+      }).join('');
+    }
+    renderPager('rf','rf',data);
+  }
+
+  async function askReason(dealId){
+    const codes = Object.keys(svReasons);
+    const list = codes.map((k,i) => `${i+1}. ${svReasons[k]}`).join('\n');
+    const pick = prompt(`Причина отказа по сделке №${dealId}:\n\n${list}\n\nВведите номер:`);
+    if(pick === null) return;
+    const code = codes[parseInt(pick,10) - 1];
+    if(!code){ alert('Такого номера в списке нет.'); return; }
+    const srcCodes = Object.keys(svSources).filter(s => s !== 'bitrix');
+    const srcList = srcCodes.map((k,i) => `${i+1}. ${svSources[k]}`).join('\n');
+    const src = prompt(`Кто назвал причину?\n\n${srcList}\n\nВведите номер:`, '2');
+    if(src === null) return;
+    const source = srcCodes[parseInt(src,10) - 1];
+    if(!source){ alert('Такого номера в списке нет.'); return; }
+    const comment = prompt('Комментарий (необязательно):') || '';
+    await api('/supervision/refusals/'+dealId,
+      {method:'POST',body:JSON.stringify({reason:code, source, comment})});
+    loadRefusals(); loadSupervision();
+  }
+
+  // ---- Дела в зоне риска ----
+  async function loadStuck(){
+    const d = await api('/supervision/stuck?limit=50');
+    document.getElementById('st-risk-note').innerHTML =
+      'Норма у каждой стадии своя — медиана её прохождения по вашим же данным. ' +
+      'Иначе «Реализация» с её месяцами считалась бы зависшей наравне со «Сбором документов». ' +
+      `Всего в зоне риска: <b>${esc(d.total)}</b>.`;
+    const t = document.getElementById('risk-rows');
+    if(!d.items.length){
+      t.innerHTML = '<tr><td colspan="7" class="empty">Зависших дел нет.</td></tr>';
+      return;
+    }
+    t.innerHTML = d.items.map(x => `<tr class="${x.over_days > x.limit_days ? 'row-overdue' : ''}">
+      <td class="mono">№${esc(x.deal_id)}</td>
+      <td>${esc(x.manager_name)}</td>
+      <td class="muted">${esc(x.stage_name)}</td>
+      <td><b class="due-late">${esc(Math.round(x.days_on_stage))} дн.</b></td>
+      <td class="muted">${x.median_days ? esc(Math.round(x.median_days)) + ' дн.' : 'нет данных'}</td>
+      <td>+${esc(Math.round(x.over_days))} дн.</td>
+      <td>${x.alerted
+        ? '<span class="badge b-ok">Задача поставлена</span>'
+        : '<span class="badge b-gold">В очереди</span>'}</td>
+    </tr>`).join('');
   }
 
   // ---- Жалобы ----

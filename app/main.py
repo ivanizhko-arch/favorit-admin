@@ -10,7 +10,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import complaints, db, quality, stages
+from . import complaints, db, quality, stages, supervision
 from .admin import router as admin_router
 from .config import settings
 
@@ -26,6 +26,7 @@ db.init()
 quality.init()
 complaints.init()
 stages.init()
+supervision.init()
 
 app = FastAPI(
     title="Фаворит · Админ-панель",

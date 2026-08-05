@@ -59,6 +59,11 @@ def call(method: str, params: Optional[dict] = None) -> Any:
         raise BitrixError(f"{method}: HTTP {e.code} {detail}") from e
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         raise BitrixError(f"{method}: сеть недоступна ({e})") from e
+    except ValueError as e:
+        # Кривой адрес вебхука — urllib бросает ValueError. Наружу должен
+        # уходить BitrixError: вызывающий код ловит его и продолжает, а не
+        # падает целиком из-за одной опечатки в настройке.
+        raise BitrixError(f"{method}: некорректный адрес вебхука ({e})") from e
     except json.JSONDecodeError as e:
         raise BitrixError(f"{method}: ответ не разобран как JSON") from e
 

@@ -567,8 +567,8 @@ def status() -> dict:
 def run_worker() -> dict:
     """Один полный прогон: разобрать оценки и жалобы, поставить задачи, при
     наступлении срока отправить месячный отчёт."""
-    from . import complaints, stages  # локальный импорт: те модули ничего
-                                      # не знают про quality, связь только тут
+    from . import complaints, stages, supervision  # локальный импорт: те
+    # модули ничего не знают про quality, связь только здесь
     result = {
         "linked": process_new_scores(),
         "tasks": create_pending_tasks(),
@@ -576,6 +576,10 @@ def run_worker() -> dict:
         # Снимок стадий обновляется по своему расписанию (раз в час),
         # частые вызовы он отбрасывает сам.
         "stages": stages.sync(),
+        # Отказы и зависшие дела считаются по свежему снимку, поэтому строго
+        # после него.
+        "refusal_reasons": supervision.ask_refusal_reasons(),
+        "stuck": supervision.alert_stuck_deals(),
     }
     ym = due_report_month()
     result["report"] = send_monthly_report(ym) if ym else {"skipped": True}

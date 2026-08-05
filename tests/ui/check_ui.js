@@ -151,6 +151,61 @@ function mockFetch(url) {
     ], 4, 0), { categories: { manager:'Работа менеджера', money:'Деньги и платежи',
         deadlines:'Сроки по делу', app:'Мобильное приложение', other:'Другое' },
         statuses: { open:'Новая', in_progress:'В работе', resolved:'Решена', rejected:'Отклонена' } });
+  else if (path === '/supervision') body = {
+      status: { refusals: 2, reason_unknown: 1, stuck: 3,
+                qc_head_set: true, support_head_set: false,
+                bitrix_configured: true },
+      managers: {
+        managers: [
+          { manager_id: 102, manager_name: 'Борис Козлов', deals: 2,
+            refusals: 1, in_progress: 1, done: 0, manager_fault: 0,
+            reason_unknown: 1, refusal_rate: 50.0 },
+          { manager_id: 101, manager_name: 'Анна <b>Смирнова</b>', deals: 8,
+            refusals: 2, in_progress: 4, done: 2, manager_fault: 1,
+            reason_unknown: 0, refusal_rate: 25.0 },
+          { manager_id: 103, manager_name: 'Кирилл Тихий', deals: 5,
+            refusals: 0, in_progress: 3, done: 2, manager_fault: 0,
+            reason_unknown: 0, refusal_rate: 0.0 },
+        ],
+        totals: { deals: 15, refusals: 3, refusal_rate: 20.0, reason_unknown: 1 },
+        reasons: { manager: 'Не устроил менеджер', price: 'Цена или нет денег',
+                   changed_mind: 'Передумал банкротиться', other: 'Другое' },
+        sources: { client: 'со слов клиента', qc: 'контроль качества',
+                   manager: 'со слов менеджера', bitrix: 'из карточки Битрикса' },
+        manager_fault_codes: ['manager'],
+      },
+    };
+  else if (path === '/supervision/refusals') body = Object.assign(listResp([
+      { deal_id: 41, manager_id: 101, manager_name: 'Анна Смирнова',
+        stage_id: 'C15:LOSE', stage_name: 'Сделка провалена',
+        reason: 'manager', reason_label: 'Не устроил менеджер',
+        manager_fault: true, comment: 'Не <b>брал</b> трубку',
+        source: 'client', source_label: 'со слов клиента', stated_by: 'admin',
+        qc_task_id: 0, refused_at: '2026-07-20T10:00:00+00:00', days_lived: 120.0 },
+      { deal_id: 42, manager_id: 102, manager_name: 'Борис Козлов',
+        stage_id: 'C15:EXECUTING', stage_name: 'Отказ от работы',
+        reason: '', reason_label: '', manager_fault: false, comment: '',
+        source: '', source_label: '', stated_by: '', qc_task_id: 7701,
+        refused_at: '2026-07-22T10:00:00+00:00', days_lived: 50.0 },
+      { deal_id: 43, manager_id: 102, manager_name: 'Борис Козлов',
+        stage_id: 'C15:LOSE', stage_name: 'Сделка провалена',
+        reason: '', reason_label: '', manager_fault: false, comment: '',
+        source: '', source_label: '', stated_by: '', qc_task_id: 0,
+        refused_at: '2026-07-25T10:00:00+00:00', days_lived: null },
+    ], 3, 0), { reasons: { manager: 'Не устроил менеджер' },
+                sources: { client: 'со слов клиента' } });
+  else if (path === '/supervision/stuck') body = {
+      total: 3, thresholds: { 'C15:UC_3T0KG4': 62.0 },
+      items: [
+        { deal_id: 51, manager_id: 101, manager_name: 'Анна Смирнова',
+          stage_id: 'C15:UC_3T0KG4', stage_name: 'Сбор документов',
+          days_on_stage: 240.0, limit_days: 62.0, median_days: 31.0,
+          over_days: 178.0, alerted: true, entered_at: '2026-01-01T00:00:00+00:00' },
+        { deal_id: 52, manager_id: 102, manager_name: 'Борис Козлов',
+          stage_id: 'C15:UC_T28ZLJ', stage_name: 'Поданы',
+          days_on_stage: 95.0, limit_days: 58.0, median_days: 29.0,
+          over_days: 37.0, alerted: false, entered_at: '2026-05-01T00:00:00+00:00' },
+      ]};
   else if (path === '/stages') body = {
       overall: { done: { count: 3, avg_days: 300.0, median_days: 300.0,
                          max_days: 400.0, enough: true },
@@ -452,6 +507,51 @@ vm.runInContext(code, ctx);
   check('месяц по умолчанию — текущий',
         /^\d{4}-\d{2}$/.test(ctx.currentMonth()), ctx.currentMonth());
 
+  console.log('\n== Отказы по менеджерам ==');
+  await ctx.loadSupervision();
+  const sv = els['sv-rows'].innerHTML;
+  check('менеджеры: 3 строки', (sv.match(/<tr>/g) || []).length === 3);
+  check('доля отказов показана', sv.includes('50%') && sv.includes('25%'));
+  check('худшая доля первой', sv.indexOf('Борис') < sv.indexOf('Анна'), '');
+  check('высокая доля красным', sv.includes('var(--danger)'));
+  check('нулевая доля зелёным', sv.includes('var(--ok)'));
+  check('колонка «из-за менеджера» отдельно', sv.includes('badge b-low">1<'), '');
+  check('XSS в имени менеджера обезврежен', !sv.includes('<b>Смирнова'));
+  check('подпись объясняет, что доля от всех дел',
+        els['sv-note'].innerHTML.includes('от всех дел менеджера'));
+  check('подпись объясняет колонку вины',
+        els['sv-note'].innerHTML.includes('к его работе не относятся'));
+  check('предупреждение про руководителя сопровождения',
+        els['sv-warn'].innerHTML.includes('BITRIX_SUPPORT_HEAD_ID'));
+  check('предупреждение про невыясненные причины',
+        els['sv-warn'].innerHTML.includes('причина не выяснена'));
+
+  await ctx.loadRefusals();
+  const rf = els['rf-rows'].innerHTML;
+  check('отказы: 3 строки', (rf.match(/<tr/g) || []).length === 3);
+  check('отказ по вине менеджера выделен',
+        (rf.match(/class="row-low"/g) || []).length === 1);
+  check('источник причины показан рядом', rf.includes('со слов клиента'));
+  check('XSS в комментарии обезврежен', !rf.includes('<b>брал'));
+  check('без причины, но с задачей — «выясняется»',
+        rf.includes('Выясняется, задача №7701'));
+  check('без причины и без задачи — «не выяснена»', rf.includes('Не выяснена'));
+  check('неизвестный срок жизни не ломает строку', rf.includes('>—<'));
+  check('кнопка указания причины есть', rf.includes('askReason(43)'));
+
+  console.log('\n== Дела в зоне риска ==');
+  await ctx.loadStuck();
+  const rk = els['risk-rows'].innerHTML;
+  check('риски: 2 строки', (rk.match(/<tr/g) || []).length === 2);
+  check('срок стояния подсвечен', rk.includes('due-late'));
+  check('норма стадии показана', rk.includes('31 дн.'));
+  check('превышение показано', rk.includes('+178 дн.'));
+  check('уже перехваченное помечено', rk.includes('Задача поставлена'));
+  check('ожидающее помечено', rk.includes('В очереди'));
+  check('объяснение, что норма своя у каждой стадии',
+        els['st-risk-note'].innerHTML.includes('медиана') &&
+        els['st-risk-note'].innerHTML.includes('Реализация'));
+
   console.log('\n== Жалобы ==');
   await ctx.loadComplaints();
   const cm = els['cm-rows'].innerHTML;
@@ -477,8 +577,10 @@ vm.runInContext(code, ctx);
         els['cm-warn'].innerHTML);
   check('пагинация жалоб', els['cm-count'].textContent === '1–4 из 4',
         els['cm-count'].textContent);
-  check('жалобы грузятся во вкладке «Качество»',
-        HTML.includes('loadQuality(); loadNps(); loadComplaints();'));
+  check('вкладка «Качество» грузит все свои разделы',
+        ['loadQuality()', 'loadNps()', 'loadSupervision()', 'loadRefusals()',
+         'loadStuck()', 'loadComplaints()'].every(fn =>
+          /quality:\s*\(\)\s*=>\s*\{[^}]*\}/.exec(HTML)[0].includes(fn)), '');
 
   console.log(`\n${'='.repeat(46)}\n  Пройдено: ${ok}   Провалено: ${fail}\n${'='.repeat(46)}`);
   process.exit(fail ? 1 : 0);

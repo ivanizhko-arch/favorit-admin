@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import complaints, db, quality, stages
+from . import complaints, db, quality, stages, supervision
 from .config import settings
 from .security import (
     client_ip,
@@ -46,6 +46,12 @@ class ComplaintIn(BaseModel):
 class ComplaintStatusIn(BaseModel):
     status: str
     resolution: str = ""
+
+
+class RefusalReasonIn(BaseModel):
+    reason: str
+    comment: str = ""
+    source: str = "qc"
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +285,47 @@ def admin_stages(_: str = Depends(get_admin)):
 def admin_stages_sync(force: bool = False, _: str = Depends(get_admin)):
     """Обновить снимок из Битрикса вручную. force игнорирует интервал."""
     return stages.sync(force=force)
+
+
+# ---------------------------------------------------------------------------
+# Отдел сопровождения: отказы и зависшие дела
+# ---------------------------------------------------------------------------
+@router.get("/api/supervision")
+def admin_supervision(_: str = Depends(get_admin)):
+    """Таблица менеджеров с долей отказов и состояние раздела — одним
+    запросом: на странице они всегда показываются вместе."""
+    return {"managers": supervision.manager_stats(),
+            "status": supervision.status()}
+
+
+@router.get("/api/supervision/refusals")
+def admin_refusals(
+    manager_id: int = 0,
+    reason: str = "",
+    unknown_only: bool = False,
+    limit: int = 50,
+    offset: int = 0,
+    _: str = Depends(get_admin),
+):
+    return supervision.refusals(manager_id=manager_id, reason=reason,
+                                unknown_only=unknown_only,
+                                limit=limit, offset=offset)
+
+
+@router.post("/api/supervision/refusals/{deal_id}")
+def admin_set_refusal_reason(deal_id: int, body: RefusalReasonIn,
+                             actor: str = Depends(get_admin)):
+    try:
+        return supervision.set_reason(deal_id, body.reason, body.comment,
+                                      body.source, stated_by=actor)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/api/supervision/stuck")
+def admin_stuck_deals(limit: int = 100, _: str = Depends(get_admin)):
+    """Дела, стоящие на стадии дольше нормы этой стадии."""
+    return supervision.stuck_deals(limit=limit)
 
 
 # ---------------------------------------------------------------------------
