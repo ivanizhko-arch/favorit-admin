@@ -8,9 +8,10 @@
 import re
 import sqlite3
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
+from . import store
 from .config import settings
 
 
@@ -24,9 +25,8 @@ def norm_phone(s: str) -> str:
 
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(settings.db_path)
-    c.row_factory = sqlite3.Row
-    return c
+    # Настройки соединения общие для всех модулей — см. store.connect().
+    return store.connect()
 
 
 def init() -> None:
@@ -294,16 +294,63 @@ def sessions_valid_after(email: str) -> int:
 
 
 # ---- Операции админа ----
-def list_users(query: str = "") -> list[dict]:
-    sql = "SELECT * FROM users"
-    args: tuple = ()
+def _like(query: str) -> str:
+    """Шаблон для LIKE с экранированием служебных % и _.
+    Без этого поиск по «100_500» вернул бы лишние строки."""
+    q = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{q}%"
+
+
+# Разрешённые сортировки. Белый список — колонка подставляется в SQL строкой,
+# параметром её передать нельзя, поэтому произвольное значение недопустимо.
+_USER_SORTS = {
+    "last_seen": "last_seen DESC",
+    "first_seen": "first_seen DESC",
+    "email": "email ASC",
+    "name": "name ASC",
+}
+
+
+def list_users(
+    query: str = "",
+    status: str = "",
+    sort: str = "last_seen",
+    limit: int = 50,
+    offset: int = 0,
+) -> dict:
+    """Поиск пользователей с фильтрами. Возвращает {items, total, limit, offset}.
+
+    status: '' (все) | active | blocked | consented | no_consent
+    """
+    where: list[str] = []
+    args: list = []
     if query:
-        sql += " WHERE email LIKE ? OR name LIKE ? OR phone LIKE ?"
-        like = f"%{query}%"
-        args = (like, like, like)
-    sql += " ORDER BY last_seen DESC LIMIT 200"
+        where.append("(email LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\' "
+                     "OR phone LIKE ? ESCAPE '\\')")
+        like = _like(query)
+        args += [like, like, like]
+    if status == "active":
+        where.append("COALESCE(blocked, 0) = 0")
+    elif status == "blocked":
+        where.append("blocked = 1")
+    elif status == "consented":
+        where.append("consent_at IS NOT NULL AND consent_at != ''")
+    elif status == "no_consent":
+        where.append("(consent_at IS NULL OR consent_at = '')")
+
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    order = _USER_SORTS.get(sort, _USER_SORTS["last_seen"])
+    limit = max(1, min(int(limit), 500))
+    offset = max(0, int(offset))
+
     with _conn() as c:
-        return [dict(r) for r in c.execute(sql, args).fetchall()]
+        total = c.execute(f"SELECT COUNT(*) n FROM users{clause}", args).fetchone()["n"]
+        rows = c.execute(
+            f"SELECT * FROM users{clause} ORDER BY {order} LIMIT ? OFFSET ?",
+            (*args, limit, offset),
+        ).fetchall()
+    return {"items": [dict(r) for r in rows], "total": int(total),
+            "limit": limit, "offset": offset}
 
 
 def get_user(email: str) -> Optional[dict]:
@@ -418,16 +465,64 @@ def lookup_number(phone: str) -> dict:
             "category": r["category"], "status": r["status"], "reports": r["reports"]}
 
 
-def list_collectors(status: str = "") -> list:
-    """Все номера коллекторов (для модерации в админке)."""
-    sql = "SELECT phone, raw, category, status, reports, last_reported FROM collector_numbers"
-    args: tuple = ()
+_COLLECTOR_SORTS = {
+    "reports": "reports DESC, last_reported DESC",
+    "last_reported": "last_reported DESC",
+    "phone": "phone ASC",
+}
+
+
+def list_collectors(
+    status: str = "",
+    query: str = "",
+    category: str = "",
+    sort: str = "reports",
+    limit: int = 50,
+    offset: int = 0,
+) -> dict:
+    """Номера коллекторов для модерации. Возвращает {items, total, limit, offset}.
+
+    Поиск по номеру терпим к формату ввода: «+7 (999) 123-45-67» и «9991234567»
+    ищут одно и то же, потому что в базе телефон лежит нормализованным.
+    """
+    where: list[str] = []
+    args: list = []
     if status:
-        sql += " WHERE status = ?"
-        args = (status,)
-    sql += " ORDER BY reports DESC, last_reported DESC LIMIT 500"
+        where.append("status = ?")
+        args.append(status)
+    if category:
+        where.append("category = ?")
+        args.append(category)
+    if query:
+        digits = re.sub(r"\D", "", query)
+        if digits:
+            # Номер хранится нормализованным — последние 10 цифр без 8 и +7.
+            # Запрос приводим так же, иначе «8 495 123-45-67» и «+7 495...»
+            # дают 11 цифр и не находят ничего: раньше такой поиск срабатывал
+            # лишь случайно, совпадая с исходной строкой в поле raw.
+            needle = digits[-10:] if len(digits) >= 10 else digits
+            where.append("(phone LIKE ? ESCAPE '\\' OR raw LIKE ? ESCAPE '\\')")
+            args += [_like(needle), _like(query)]
+        else:
+            where.append("raw LIKE ? ESCAPE '\\'")
+            args.append(_like(query))
+
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    order = _COLLECTOR_SORTS.get(sort, _COLLECTOR_SORTS["reports"])
+    limit = max(1, min(int(limit), 500))
+    offset = max(0, int(offset))
+
     with _conn() as c:
-        return [dict(r) for r in c.execute(sql, args).fetchall()]
+        total = c.execute(
+            f"SELECT COUNT(*) n FROM collector_numbers{clause}", args).fetchone()["n"]
+        rows = c.execute(
+            "SELECT phone, raw, category, status, reports, first_reported, "
+            f"last_reported FROM collector_numbers{clause} "
+            f"ORDER BY {order} LIMIT ? OFFSET ?",
+            (*args, limit, offset),
+        ).fetchall()
+    return {"items": [dict(r) for r in rows], "total": int(total),
+            "limit": limit, "offset": offset}
 
 
 def delete_collector(phone: str) -> None:
@@ -873,19 +968,122 @@ def list_active_users(limit: int = 5000) -> list[dict]:
         return [dict(r) for r in rows]
 
 
+# ---- Сводка и тренды ----
+def nps_trend(months: int = 6) -> list[dict]:
+    """Помесячный тренд оценок за последние N месяцев.
+
+    ВАЖНО: в nps_scores лежат только оценки 8-10 (промоутеры) — так решено
+    бизнесом. Классический NPS (%промоутеров − %детракторов) из этих данных
+    не считается, поэтому возвращаем среднюю оценку промоутеров и их число.
+    Месяцы без оценок отдаём нулями, иначе график врёт по оси времени.
+    """
+    months = max(1, min(int(months), 24))
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT substr(created_at, 1, 7) ym, COUNT(*) n, "
+            "AVG(score) avg_score, SUM(left_review) reviews "
+            "FROM nps_scores GROUP BY ym"
+        ).fetchall()
+    by_month = {r["ym"]: r for r in rows}
+
+    # Ключи последних N месяцев, от старого к новому.
+    today = datetime.now(timezone.utc)
+    keys: list[str] = []
+    y, m = today.year, today.month
+    for _ in range(months):
+        keys.append(f"{y:04d}-{m:02d}")
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+    keys.reverse()
+
+    out = []
+    for k in keys:
+        r = by_month.get(k)
+        out.append({
+            "month": k,
+            "count": int(r["n"]) if r else 0,
+            "avg_score": round(float(r["avg_score"]), 2) if r else 0.0,
+            "reviews": int(r["reviews"] or 0) if r else 0,
+        })
+    return out
+
+
 def stats() -> dict:
+    """KPI-сводка для шапки админки: пользователи, коллекторы, NPS."""
+    now = datetime.now(timezone.utc)
+    week_ago = (now - timedelta(days=7)).timestamp()
+    month_ago = (now - timedelta(days=30)).timestamp()
+
+    def _ts(value) -> Optional[float]:
+        """ISO-строка → unix. None, если формат неожиданный (старые записи)."""
+        try:
+            return datetime.fromisoformat(value).timestamp()
+        except (TypeError, ValueError):
+            return None
+
     with _conn() as c:
         total = c.execute("SELECT COUNT(*) n FROM users").fetchone()["n"]
-        blocked = c.execute("SELECT COUNT(*) n FROM users WHERE blocked = 1").fetchone()["n"]
-        # активные за 7 дней
-        week_ago = datetime.now(timezone.utc).timestamp() - 7 * 86400
-        rows = c.execute("SELECT last_seen FROM users WHERE last_seen IS NOT NULL").fetchall()
-        active = 0
-        for r in rows:
-            try:
-                if datetime.fromisoformat(r["last_seen"]).timestamp() >= week_ago:
-                    active += 1
-            except Exception:
-                pass
-        logins = c.execute("SELECT COUNT(*) n FROM events WHERE kind = 'login'").fetchone()["n"]
-    return {"total": total, "blocked": blocked, "active_7d": active, "logins": logins}
+        blocked = c.execute(
+            "SELECT COUNT(*) n FROM users WHERE blocked = 1").fetchone()["n"]
+
+        # Активность и приток считаем одним проходом по датам.
+        active_7d = active_30d = new_7d = 0
+        for r in c.execute("SELECT last_seen, first_seen FROM users").fetchall():
+            seen = _ts(r["last_seen"])
+            if seen is not None:
+                if seen >= week_ago:
+                    active_7d += 1
+                if seen >= month_ago:
+                    active_30d += 1
+            first = _ts(r["first_seen"])
+            if first is not None and first >= week_ago:
+                new_7d += 1
+
+        logins = c.execute(
+            "SELECT COUNT(*) n FROM events WHERE kind = 'login'").fetchone()["n"]
+
+        col = c.execute(
+            "SELECT COUNT(*) total, "
+            "SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) confirmed, "
+            "SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) pending "
+            "FROM collector_numbers").fetchone()
+        whitelist = c.execute(
+            "SELECT COUNT(*) n FROM collector_whitelist").fetchone()["n"]
+
+        nps = c.execute(
+            "SELECT COUNT(*) n, AVG(score) avg_score, SUM(left_review) reviews "
+            "FROM nps_scores").fetchone()
+        nps_month = c.execute(
+            "SELECT COUNT(*) n, AVG(score) avg_score FROM nps_scores "
+            "WHERE created_at >= ?",
+            ((now - timedelta(days=30)).isoformat(timespec="seconds"),),
+        ).fetchone()
+
+    nps_count = int(nps["n"] or 0)
+    reviews = int(nps["reviews"] or 0)
+    return {
+        # Ключи total/blocked/active_7d/logins сохранены — на них опирается
+        # существующий UI и возможные внешние вызовы.
+        "total": total,
+        "blocked": blocked,
+        "active_7d": active_7d,
+        "logins": logins,
+        "active_30d": active_30d,
+        "new_7d": new_7d,
+        "collectors": {
+            "total": int(col["total"] or 0),
+            "confirmed": int(col["confirmed"] or 0),
+            "pending": int(col["pending"] or 0),
+            "whitelist": int(whitelist),
+        },
+        "nps": {
+            "count": nps_count,
+            "avg_score": round(float(nps["avg_score"]), 2) if nps_count else 0.0,
+            "reviews": reviews,
+            "review_rate": round(reviews * 100 / nps_count, 1) if nps_count else 0.0,
+            "count_30d": int(nps_month["n"] or 0),
+            "avg_score_30d": (round(float(nps_month["avg_score"]), 2)
+                              if nps_month["n"] else 0.0),
+        },
+    }

@@ -17,36 +17,101 @@
   .btn-ghost{background:#1a1c24;border:1px solid var(--line);color:#c8ccd4;padding:8px 12px}
   .btn-danger{background:transparent;border:1px solid rgba(224,115,111,.5);color:var(--danger);padding:8px 12px}
   .btn-warn{background:transparent;border:1px solid rgba(215,174,94,.5);color:var(--gold);padding:8px 12px}
+  button:disabled{opacity:.35;cursor:default}
 
   /* Логин */
   #login{max-width:360px;margin:12vh auto 0;background:var(--ink2);border:1px solid var(--line);border-radius:18px;padding:26px;text-align:center}
   #login h1{font-size:18px;color:var(--gold);letter-spacing:.14em;margin-bottom:6px}
   #login p{color:var(--muted);font-size:12.5px;margin-bottom:20px}
-  input{width:100%;background:#15171e;border:1px solid var(--line);border-radius:12px;padding:13px 14px;color:#fff;font-size:15px;outline:none;margin-bottom:12px}
-  input:focus{border-color:var(--gold)}
+  input,select{width:100%;background:#15171e;border:1px solid var(--line);border-radius:12px;padding:13px 14px;color:#fff;font-size:15px;outline:none;margin-bottom:12px}
+  input:focus,select:focus{border-color:var(--gold)}
+  #totp-code{letter-spacing:.4em;text-align:center;font-size:19px}
 
   /* Дашборд */
   .hidden{display:none}
-  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
+  .tabs{display:flex;gap:4px;margin-bottom:24px;border-bottom:1px solid var(--line);
+        overflow-x:auto;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tabs button{background:transparent;border:none;border-bottom:2px solid transparent;
+        color:var(--muted);padding:11px 18px;font-size:14px;font-weight:700;
+        white-space:nowrap;margin-bottom:-1px;border-radius:0}
+  .tabs button:hover{color:#e8ebf1}
+  .tabs button[aria-selected="true"]{color:var(--gold);border-bottom-color:var(--gold)}
+  .tabs button:focus-visible{outline:2px solid var(--gold);outline-offset:-4px}
+  /* Первый заголовок во вкладке не должен отбиваться сверху как между разделами. */
+  .panel > .section-title:first-child{margin-top:0}
+
+  /* KPI */
+  .kpi-group{margin-bottom:18px}
+  .kpi-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;font-weight:700}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
   .tile{background:var(--ink2);border:1px solid var(--line);border-radius:16px;padding:16px}
-  .tile b{display:block;font-size:26px;color:var(--gold);font-weight:800}
+  .tile b{display:block;font-size:26px;color:var(--gold);font-weight:800;line-height:1.15}
   .tile span{font-size:12px;color:var(--muted)}
-  .searchbar{display:flex;gap:10px;margin-bottom:14px}
-  .searchbar input{margin:0}
+  .tile .sub{display:block;font-size:11px;color:var(--muted);margin-top:5px;opacity:.8}
+
+  /* Тренд */
+  .trend{background:var(--ink2);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:22px}
+  .trend h3{font-size:13.5px;color:#e8ebf1;font-weight:700;margin-bottom:3px}
+  .trend .note{font-size:11.5px;color:var(--muted);margin-bottom:14px;line-height:1.5}
+  .trend svg{width:100%;height:150px;display:block}
+  .legend{display:flex;gap:16px;margin-top:10px;font-size:11.5px;color:var(--muted);flex-wrap:wrap}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+
+  /* Фильтры и таблицы */
+  .filters{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
+  .filters input,.filters select{margin:0;padding:9px 12px;font-size:13.5px;width:auto}
+  .filters input.grow{flex:1;min-width:200px}
   table{width:100%;border-collapse:collapse;background:var(--ink2);border:1px solid var(--line);border-radius:14px;overflow:hidden}
-  th,td{text-align:left;padding:12px 14px;font-size:13px;border-bottom:1px solid var(--line)}
+  th,td{text-align:left;padding:12px 14px;font-size:13px;border-bottom:1px solid var(--line);vertical-align:top}
   th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
   tr:last-child td{border-bottom:none}
-  .badge{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:20px}
+  .badge{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:20px;white-space:nowrap}
   .b-ok{background:rgba(75,189,134,.15);color:var(--ok)}
   .b-blocked{background:rgba(224,115,111,.15);color:var(--danger)}
+  .b-gold{background:rgba(215,174,94,.15);color:var(--gold)}
+  .b-mute{background:rgba(154,160,172,.15);color:var(--muted)}
   .row-actions{display:flex;gap:6px;flex-wrap:wrap}
   .muted{color:var(--muted);font-size:12px}
+  .mono{font-family:ui-monospace,'SF Mono',Consolas,monospace;font-size:12px}
   .empty{text-align:center;color:var(--muted);padding:30px;font-size:13px}
   .err{color:var(--danger);font-size:12.5px;margin-bottom:10px;min-height:16px}
-  .section-title{font-size:15px;font-weight:800;color:var(--gold);margin:30px 0 12px}
+  .section-title{font-size:15px;font-weight:800;color:var(--gold);margin:34px 0 12px;scroll-margin-top:16px}
+  .pager{display:flex;gap:10px;align-items:center;margin-top:12px;font-size:12.5px;color:var(--muted)}
+
+  /* Контроль качества */
+  .warn{background:rgba(224,115,111,.09);border:1px solid rgba(224,115,111,.35);
+        color:#f0b3b0;border-radius:12px;padding:12px 14px;font-size:13px;margin-bottom:12px;line-height:1.55}
+  .warn b{color:var(--danger)}
+  .leader{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+          background:linear-gradient(90deg,rgba(215,174,94,.13),rgba(215,174,94,.02));
+          border:1px solid rgba(215,174,94,.4);border-radius:16px;padding:16px 18px;margin-bottom:12px}
+  .leader .crown{font-size:26px;line-height:1}
+  .leader .who{font-size:19px;font-weight:800;color:var(--gold)}
+  .leader .sub{font-size:12.5px;color:var(--muted);margin-top:3px}
+  .leader .pts{margin-left:auto;text-align:right}
+  .leader .pts b{display:block;font-size:26px;font-weight:800;color:var(--gold);line-height:1.1}
+  .leader .pts span{font-size:11.5px;color:var(--muted)}
+  /* Строка низкой оценки должна читаться до чтения — не только числом. */
+  tr.row-low td{background:rgba(224,115,111,.07)}
+  tr.row-low td:first-child{box-shadow:inset 3px 0 0 var(--danger)}
+  .b-low{background:rgba(224,115,111,.18);color:var(--danger)}
+  .b-neutral{background:rgba(154,160,172,.15);color:var(--muted)}
+
+  /* Жалобы */
+  .chk{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted);
+       cursor:pointer;white-space:nowrap}
+  .chk input{width:auto;margin:0;accent-color:var(--gold)}
+  /* Просроченный ответ — основание для неустойки, должен быть виден сразу. */
+  tr.row-overdue td{background:rgba(224,115,111,.07)}
+  tr.row-overdue td:first-child{box-shadow:inset 3px 0 0 var(--danger)}
+  .cm-text{max-width:340px;color:#c8ccd4;font-size:12.5px;line-height:1.5;
+           display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;
+           overflow:hidden}
+  .due-late{color:var(--danger);font-weight:700}
   .wl-add{display:flex;gap:10px;margin-bottom:12px}
   .wl-add input{margin:0}
+  @media(max-width:760px){.tiles{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
 <body>
@@ -58,6 +123,11 @@
     <p>Админ-панель приложения</p>
     <div class="err" id="login-err"></div>
     <input type="password" id="pwd" placeholder="Пароль администратора" onkeydown="if(event.key==='Enter')doLogin()">
+    <div id="totp-box" class="hidden">
+      <input id="totp-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6"
+             placeholder="000000" onkeydown="if(event.key==='Enter')doLogin()">
+      <p style="margin:-4px 0 12px">Код из приложения-аутентификатора</p>
+    </div>
     <button class="btn-gold" style="width:100%" onclick="doLogin()">Войти</button>
   </div>
 
@@ -68,34 +138,115 @@
       <button class="btn-ghost" onclick="logout()">Выйти</button>
     </div>
 
-    <div class="tiles" id="tiles"></div>
-
-    <div class="searchbar">
-      <input id="q" placeholder="Поиск: имя, телефон или e-mail" oninput="debouncedLoad()">
-      <button class="btn-ghost" onclick="loadUsers()">Обновить</button>
+    <div class="tabs" role="tablist" aria-label="Разделы админки">
+      <button type="button" role="tab" data-tab="dashboard" aria-selected="true"
+              aria-controls="p-dashboard">Дашборд</button>
+      <button type="button" role="tab" data-tab="clients" aria-selected="false"
+              aria-controls="p-clients">Клиенты</button>
+      <button type="button" role="tab" data-tab="quality" aria-selected="false"
+              aria-controls="p-quality">Качество</button>
     </div>
 
+    <!-- ВКЛАДКА: ДАШБОРД -->
+    <section class="panel" id="p-dashboard" role="tabpanel">
+
+    <!-- KPI-СВОДКА -->
+    <div id="kpi"></div>
+
+    <!-- СТАДИИ БАНКРОТСТВА -->
+    <div class="section-title" id="s-stages">⚖️ Стадии банкротства</div>
+    <div id="st-warn"></div>
+    <div id="st-overall"></div>
+    <div class="filters">
+      <span class="muted" id="st-status"></span>
+      <button class="btn-ghost" style="margin-left:auto" onclick="syncStages(this)">Обновить из Битрикса</button>
+    </div>
+    <table>
+      <thead><tr><th>Стадия</th><th>Сейчас</th><th>Средний срок</th><th>Медиана</th><th>Дольше всех</th></tr></thead>
+      <tbody id="st-rows"></tbody>
+    </table>
+    <p class="muted" id="st-note" style="margin-top:10px"></p>
+
+    <!-- ТРЕНД NPS -->
+    <div class="trend">
+      <h3>Тренд оценок клиентов</h3>
+      <p class="note" id="trend-note"></p>
+      <div id="nps-chart"></div>
+      <div class="legend">
+        <span><i style="background:rgba(215,174,94,.45)"></i>Оценок за месяц</span>
+        <span><i style="background:#4bbd86"></i><span id="trend-legend">Средняя оценка</span></span>
+      </div>
+    </div>
+
+    </section>
+
+    <!-- ВКЛАДКА: КЛИЕНТЫ -->
+    <section class="panel hidden" id="p-clients" role="tabpanel">
+
+    <!-- ПОЛЬЗОВАТЕЛИ -->
+    <div class="section-title" id="s-users">👤 Пользователи</div>
+    <div class="filters">
+      <input class="grow" id="q" placeholder="Поиск: имя, телефон или e-mail" oninput="debounce('users',loadUsers)">
+      <select id="u-status" onchange="resetPage('users');loadUsers()">
+        <option value="">Все статусы</option>
+        <option value="active">Активные</option>
+        <option value="blocked">Заблокированные</option>
+        <option value="consented">Дали согласие</option>
+        <option value="no_consent">Без согласия</option>
+      </select>
+      <select id="u-sort" onchange="resetPage('users');loadUsers()">
+        <option value="last_seen">Сначала недавние</option>
+        <option value="first_seen">Сначала новые</option>
+        <option value="email">По e-mail</option>
+        <option value="name">По имени</option>
+      </select>
+      <button class="btn-ghost" onclick="loadUsers()">Обновить</button>
+    </div>
     <table>
       <thead><tr><th>Пользователь</th><th>Телефон</th><th>Последний вход</th><th>Статус</th><th>Действия</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
+    <div class="pager">
+      <button class="btn-ghost" id="u-prev" onclick="page('users',-1);loadUsers()">← Назад</button>
+      <button class="btn-ghost" id="u-next" onclick="page('users',1);loadUsers()">Вперёд →</button>
+      <span id="u-count"></span>
+    </div>
 
     <!-- КОЛЛЕКТОРЫ -->
-    <div class="section-title">🛡 База номеров коллекторов</div>
+    <div class="section-title" id="s-collectors">🛡 База номеров коллекторов</div>
+    <div class="filters">
+      <input class="grow" id="c-q" placeholder="Поиск по номеру (+7 999... или 999...)" oninput="debounce('col',loadCollectors)">
+      <select id="c-status" onchange="resetPage('col');loadCollectors()">
+        <option value="">Все статусы</option>
+        <option value="confirmed">Заблокированные</option>
+        <option value="pending">На проверке</option>
+        <option value="rejected">Отклонённые</option>
+      </select>
+      <select id="c-category" onchange="resetPage('col');loadCollectors()">
+        <option value="">Все категории</option>
+        <option value="collector">Коллектор</option>
+        <option value="scammer">Мошенник</option>
+        <option value="spam">Спам</option>
+      </select>
+      <select id="c-sort" onchange="resetPage('col');loadCollectors()">
+        <option value="reports">По числу жалоб</option>
+        <option value="last_reported">По дате жалобы</option>
+        <option value="phone">По номеру</option>
+      </select>
+      <button class="btn-ghost" onclick="loadCollectors()">Обновить</button>
+    </div>
     <table>
-      <thead><tr><th>Номер</th><th>Категория</th><th>Жалоб</th><th>Статус</th><th>Действия</th></tr></thead>
+      <thead><tr><th>Номер</th><th>Категория</th><th>Жалоб</th><th>Последняя жалоба</th><th>Статус</th><th>Действия</th></tr></thead>
       <tbody id="col-rows"></tbody>
     </table>
-
-    <!-- NPS -->
-    <div class="section-title">⭐ NPS-оценки клиентов (после «Долги списаны»)</div>
-    <table>
-      <thead><tr><th>Клиент</th><th>Оценка</th><th>Оставил отзыв на Я.Картах</th><th>Когда</th></tr></thead>
-      <tbody id="nps-rows"></tbody>
-    </table>
+    <div class="pager">
+      <button class="btn-ghost" id="c-prev" onclick="page('col',-1);loadCollectors()">← Назад</button>
+      <button class="btn-ghost" id="c-next" onclick="page('col',1);loadCollectors()">Вперёд →</button>
+      <span id="c-count"></span>
+    </div>
 
     <!-- БЕЛЫЙ СПИСОК -->
-    <div class="section-title">✅ Защищённые номера (белый список)</div>
+    <div class="section-title" id="s-whitelist">✅ Защищённые номера (белый список)</div>
     <div class="wl-add">
       <input id="wl-phone" placeholder="Номер (+7...)">
       <input id="wl-label" placeholder="Кто это (напр. Суд, ФССП, наш номер)">
@@ -105,21 +256,201 @@
       <thead><tr><th>Номер</th><th>Метка</th><th>Действия</th></tr></thead>
       <tbody id="wl-rows"></tbody>
     </table>
+
+    </section>
+
+    <!-- ВКЛАДКА: КАЧЕСТВО -->
+    <section class="panel hidden" id="p-quality" role="tabpanel">
+
+    <!-- КОНТРОЛЬ КАЧЕСТВА -->
+    <div class="section-title" id="s-quality">🎯 Контроль качества и рейтинг менеджеров</div>
+    <div id="q-warn"></div>
+    <div class="filters">
+      <input id="q-month" type="month" onchange="loadQuality()" style="max-width:190px">
+      <button class="btn-ghost" onclick="syncQuality(this)">Разобрать оценки сейчас</button>
+      <button class="btn-gold" onclick="sendReport(this)">Отправить отчёт за месяц</button>
+      <span class="muted" id="q-status"></span>
+    </div>
+    <div id="q-leader"></div>
+    <table>
+      <thead><tr><th>#</th><th>Менеджер</th><th>Итог</th><th id="q-th-top">Лучших</th><th id="q-th-low">Низких</th><th>Нейтральных</th></tr></thead>
+      <tbody id="q-rows"></tbody>
+    </table>
+    <p class="muted" id="q-rule" style="margin-top:10px"></p>
+
+    <!-- ОЦЕНКИ -->
+    <div class="section-title" id="s-nps">⭐ Оценки клиентов (после «Долги списаны»)</div>
+    <div class="filters">
+      <select id="n-kind" onchange="resetPage('nps');loadNps()">
+        <option value="">Все оценки</option>
+        <option value="low">Требуют контроля</option>
+        <option value="neutral">Нейтральные</option>
+        <option value="top">Лучшие</option>
+      </select>
+      <button class="btn-ghost" onclick="loadNps()">Обновить</button>
+    </div>
+    <table>
+      <thead><tr><th>Клиент</th><th>Оценка</th><th>Менеджер</th><th>Контроль качества</th><th>Отзыв</th><th>Когда</th></tr></thead>
+      <tbody id="nps-rows"></tbody>
+    </table>
+    <div class="pager">
+      <button class="btn-ghost" id="n-prev" onclick="page('nps',-1);loadNps()">← Назад</button>
+      <button class="btn-ghost" id="n-next" onclick="page('nps',1);loadNps()">Вперёд →</button>
+      <span id="n-count"></span>
+    </div>
+
+    <!-- ОТДЕЛ СОПРОВОЖДЕНИЯ: ОТКАЗЫ -->
+    <div class="section-title" id="s-refusals">📉 Отказы по менеджерам</div>
+    <div id="sv-warn"></div>
+    <table>
+      <thead><tr><th>Менеджер</th><th>Дел всего</th><th>В работе</th><th>Отказов</th><th>Доля отказов</th><th>Из-за менеджера</th><th>Причина не выяснена</th></tr></thead>
+      <tbody id="sv-rows"></tbody>
+    </table>
+    <p class="muted" id="sv-note" style="margin-top:10px"></p>
+
+    <div class="filters" style="margin-top:18px">
+      <select id="rf-manager" onchange="resetPage('rf');loadRefusals()">
+        <option value="0">Все менеджеры</option>
+      </select>
+      <select id="rf-reason" onchange="resetPage('rf');loadRefusals()">
+        <option value="">Все причины</option>
+      </select>
+      <label class="chk"><input type="checkbox" id="rf-unknown" onchange="resetPage('rf');loadRefusals()"> Только без причины</label>
+      <button class="btn-ghost" onclick="loadRefusals()">Обновить</button>
+    </div>
+    <table>
+      <thead><tr><th>Сделка</th><th>Менеджер</th><th>Стадия отказа</th><th>Прожил</th><th>Причина</th><th>Действия</th></tr></thead>
+      <tbody id="rf-rows"></tbody>
+    </table>
+    <div class="pager">
+      <button class="btn-ghost" id="rf-prev" onclick="page('rf',-1);loadRefusals()">← Назад</button>
+      <button class="btn-ghost" id="rf-next" onclick="page('rf',1);loadRefusals()">Вперёд →</button>
+      <span id="rf-count"></span>
+    </div>
+
+    <!-- ЗАВИСШИЕ ДЕЛА -->
+    <div class="section-title" id="s-stuck">⏳ Дела в зоне риска</div>
+    <p class="muted" id="st-risk-note" style="margin:-4px 0 12px"></p>
+    <table>
+      <thead><tr><th>Сделка</th><th>Менеджер</th><th>Стадия</th><th>Стоит</th><th>Норма</th><th>Превышение</th><th>Перехват</th></tr></thead>
+      <tbody id="risk-rows"></tbody>
+    </table>
+
+    <!-- ЖАЛОБЫ -->
+    <div class="section-title" id="s-complaints">📣 Жалобы клиентов</div>
+    <div id="cm-warn"></div>
+    <div class="filters">
+      <input class="grow" id="cm-q" placeholder="Поиск: e-mail или текст жалобы" oninput="debounce('cmp',loadComplaints)">
+      <select id="cm-status" onchange="resetPage('cmp');loadComplaints()">
+        <option value="">Все статусы</option>
+        <option value="open">Новые</option>
+        <option value="in_progress">В работе</option>
+        <option value="resolved">Решённые</option>
+        <option value="rejected">Отклонённые</option>
+      </select>
+      <select id="cm-category" onchange="resetPage('cmp');loadComplaints()">
+        <option value="">Все темы</option>
+      </select>
+      <label class="chk"><input type="checkbox" id="cm-overdue" onchange="resetPage('cmp');loadComplaints()"> Только просроченные</label>
+      <button class="btn-ghost" onclick="loadComplaints()">Обновить</button>
+    </div>
+    <table>
+      <thead><tr><th>Клиент</th><th>Тема</th><th>Жалоба</th><th>Ответить до</th><th>Статус</th><th>Задача</th><th>Действия</th></tr></thead>
+      <tbody id="cm-rows"></tbody>
+    </table>
+    <div class="pager">
+      <button class="btn-ghost" id="cm-prev" onclick="page('cmp',-1);loadComplaints()">← Назад</button>
+      <button class="btn-ghost" id="cm-next" onclick="page('cmp',1);loadComplaints()">Вперёд →</button>
+      <span id="cm-count"></span>
+    </div>
+
+    </section>
+
   </div>
 </div>
 
 <script>
   const API = '/admin/api';
+  const PAGE = 50;
   let token = localStorage.getItem('favorit_admin_token') || '';
+  let totpRequired = false;
 
   function headers(){ return {'Content-Type':'application/json','Authorization':'Bearer '+token}; }
 
+  // Любое значение из БД (e-mail, имя, метка) попадает в innerHTML — без
+  // экранирования кавычка или <script> в имени клиента ломает разметку.
+  function esc(v){
+    return String(v == null ? '' : v).replace(/[&<>"']/g, ch => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[ch]);
+  }
+  // Для подстановки в onclick="fn('...')" — экранируем ещё и обратный слэш.
+  function jsq(v){ return esc(String(v == null ? '' : v).replace(/\\/g,'\\\\').replace(/'/g,"\\'")); }
+  function when(v){ return v ? esc(String(v).replace('T',' ').slice(0,16)) : '—'; }
+  function fmtPhone(p){ return p ? '+7 '+esc(p) : '—'; }
+
+  // ---- Пагинация ----
+  const pages = {users:0, col:0, nps:0, cmp:0, rf:0};
+  function resetPage(k){ pages[k] = 0; }
+  function page(k, delta){ pages[k] = Math.max(0, pages[k] + delta); }
+  function renderPager(k, prefix, data){
+    const from = data.total ? data.offset + 1 : 0;
+    const to = Math.min(data.offset + data.limit, data.total);
+    document.getElementById(prefix+'-count').textContent =
+      data.total ? `${from}–${to} из ${data.total}` : 'Ничего не найдено';
+    document.getElementById(prefix+'-prev').disabled = data.offset === 0;
+    document.getElementById(prefix+'-next').disabled = to >= data.total;
+  }
+
+  const timers = {};
+  function debounce(key, fn){
+    clearTimeout(timers[key]);
+    // Новый поисковый запрос всегда показываем с первой страницы, иначе
+    // после сужения фильтра можно оказаться на пустой третьей.
+    timers[key] = setTimeout(() => { resetPage(key); fn(); }, 300);
+  }
+
+  // Ошибку запроса нельзя терять молча: иначе «Заблокировать» при упавшем
+  // сервере выглядит как успешное действие.
+  window.addEventListener('unhandledrejection', e => {
+    if(e.reason && e.reason.message === 'unauthorized') return; // уже разлогинились
+    console.error(e.reason);
+    alert('Не удалось выполнить запрос: ' + (e.reason && e.reason.message || 'ошибка сети'));
+  });
+
+  // ---- Вход ----
+  async function checkAuthConfig(){
+    try{
+      const r = await fetch(API+'/auth/config');
+      totpRequired = (await r.json()).totp_required;
+    }catch(e){ totpRequired = false; }
+    document.getElementById('totp-box').classList.toggle('hidden', !totpRequired);
+  }
+
   async function doLogin(){
     const pwd = document.getElementById('pwd').value;
+    const totp = document.getElementById('totp-code').value.trim();
     const err = document.getElementById('login-err'); err.textContent='';
+    if(totpRequired && !totp){ err.textContent='Введите код из аутентификатора'; return; }
     try{
-      const r = await fetch(API+'/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pwd})});
-      if(!r.ok){ err.textContent='Неверный пароль'; return; }
+      const r = await fetch(API+'/login',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({password:pwd, totp})
+      });
+      if(!r.ok){
+        // Сервер может потребовать второй фактор, даже если конфиг ещё не
+        // подтянулся (например, 2FA включили после загрузки страницы).
+        if(r.headers.get('X-Totp-Required')){
+          totpRequired = true;
+          document.getElementById('totp-box').classList.remove('hidden');
+        }
+        let msg = 'Неверный пароль';
+        try{ msg = (await r.json()).detail || msg; }catch(e){}
+        err.textContent = msg;
+        document.getElementById('totp-code').value = '';
+        return;
+      }
       token = (await r.json()).access_token;
       localStorage.setItem('favorit_admin_token', token);
       showDash();
@@ -128,134 +459,755 @@
 
   function logout(){ token=''; localStorage.removeItem('favorit_admin_token'); location.reload(); }
 
+  // Единая обработка протухшего токена — иначе каждый загрузчик молча
+  // рисовал бы пустую таблицу вместо возврата на форму входа.
+  async function api(path, opts){
+    const r = await fetch(API+path, Object.assign({headers:headers()}, opts||{}));
+    if(r.status===401||r.status===403){ logout(); throw new Error('unauthorized'); }
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return r.json();
+  }
+
   function showDash(){
     document.getElementById('login').classList.add('hidden');
     document.getElementById('dash').classList.remove('hidden');
-    loadStats(); loadUsers(); loadCollectors(); loadWhitelist(); loadNps();
+    openTab(location.hash.slice(1) || 'dashboard');
   }
 
-  async function loadNps(){
-    const r = await fetch(API+'/nps',{headers:headers()});
-    if(r.status===401||r.status===403){ return; }
-    const list = await r.json();
-    const t = document.getElementById('nps-rows');
-    if(!list.length){
-      t.innerHTML = '<tr><td colspan="4" class="empty">Пока нет оценок. Сохраняем только 8-10 (промоутеры).</td></tr>';
+  // ---- Вкладки ----
+  // Данные грузятся при первом открытии вкладки, а не все разом. Раньше вход
+  // в админку разом отправлял семь запросов, а видно было два блока.
+  const TAB_LOADERS = {
+    dashboard: () => { loadStats(); loadStages(); loadTrend(); },
+    clients:   () => { loadUsers(); loadCollectors(); loadWhitelist(); },
+    quality:   () => { loadQuality(); loadNps(); loadSupervision();
+                       loadRefusals(); loadStuck(); loadComplaints(); },
+  };
+  const TAB_NAMES = Object.keys(TAB_LOADERS);
+  const tabLoaded = {};
+  let currentTab = 'dashboard';
+
+  function openTab(name){
+    if(!TAB_LOADERS[name]) name = 'dashboard';
+    currentTab = name;
+    TAB_NAMES.forEach(n =>
+      document.getElementById('p-'+n).classList.toggle('hidden', n !== name));
+    document.querySelectorAll('.tabs button').forEach(b =>
+      b.setAttribute('aria-selected', String(b.dataset.tab === name)));
+    // Адрес вкладки — удобство, а не функциональность: в песочнице с
+    // непрозрачным источником history API бросает исключение, и без защиты
+    // оно обрывало бы загрузку данных вкладки.
+    if(location.hash.slice(1) !== name){
+      try { history.replaceState(null, '', '#'+name); } catch(e){}
+    }
+    if(!tabLoaded[name]){ tabLoaded[name] = true; TAB_LOADERS[name](); }
+  }
+
+  // Действие на одной вкладке меняет цифры на другой: блокировка клиента —
+  // сводку на дашборде. Если вкладка не открыта, помечаем её устаревшей и
+  // перезагружаем при следующем открытии, а не дёргаем запрос вслепую.
+  function invalidate(name){
+    if(name === currentTab) TAB_LOADERS[name]();
+    else tabLoaded[name] = false;
+  }
+
+  document.querySelectorAll('.tabs button').forEach(b => {
+    b.addEventListener('click', () => openTab(b.dataset.tab));
+    b.addEventListener('keydown', e => {
+      const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if(!step) return;
+      e.preventDefault();
+      const i = TAB_NAMES.indexOf(b.dataset.tab);
+      const next = TAB_NAMES[(i + step + TAB_NAMES.length) % TAB_NAMES.length];
+      openTab(next);
+      document.querySelector('.tabs button[data-tab="'+next+'"]').focus();
+    });
+  });
+  window.addEventListener('hashchange', () => openTab(location.hash.slice(1)));
+
+  // ---- KPI-сводка ----
+  async function loadStats(){
+    const s = await api('/stats');
+    const c = s.collectors || {}, n = s.nps || {};
+    const groups = [
+      ['Пользователи', [
+        ['Всего', s.total, ''],
+        ['Активны за 7 дней', s.active_7d, `за 30 дней: ${s.active_30d ?? '—'}`],
+        ['Новых за 7 дней', s.new_7d ?? 0, ''],
+        ['Заблокировано', s.blocked, `всего входов: ${s.logins}`],
+      ]],
+      ['База коллекторов', [
+        ['Заблокировано номеров', c.confirmed ?? 0, ''],
+        ['На проверке', c.pending ?? 0, ''],
+        ['Всего в базе', c.total ?? 0, ''],
+        ['Белый список', c.whitelist ?? 0, ''],
+      ]],
+      ['Оценки клиентов', [
+        ['Средняя оценка', n.count ? n.avg_score : '—', `всего оценок: ${n.count ?? 0}`],
+        ['Оценок за 30 дней', n.count_30d ?? 0, n.count_30d ? `средняя: ${n.avg_score_30d}` : ''],
+        ['Оставили отзыв', `${n.review_rate ?? 0}%`, `${n.reviews ?? 0} из ${n.count ?? 0}`],
+      ]],
+    ];
+    document.getElementById('kpi').innerHTML = groups.map(([label, tiles]) => `
+      <div class="kpi-group">
+        <div class="kpi-label">${esc(label)}</div>
+        <div class="tiles">${tiles.map(([name, value, sub]) => `
+          <div class="tile">
+            <b>${esc(value)}</b>
+            <span>${esc(name)}</span>
+            ${sub ? `<span class="sub">${esc(sub)}</span>` : ''}
+          </div>`).join('')}
+        </div>
+      </div>`).join('');
+  }
+
+  // ---- Стадии банкротства ----
+  const STAGE_KIND = {
+    work:   { cls:'', hint:'' },
+    stuck:  { cls:'b-gold',    hint:'ожидание, не работа' },
+    failed: { cls:'b-low',     hint:'дело не дошло до списания' },
+    done:   { cls:'b-ok',      hint:'завершение дела' },
+  };
+  const days = v => v === null || v === undefined ? '—' : esc(v) + ' дн.';
+
+  async function loadStages(){
+    const d = await api('/stages');
+    const st = d.status, ov = d.overall;
+
+    document.getElementById('st-warn').innerHTML = !st.configured
+      ? '<div class="warn">· Битрикс не настроен — снимок стадий не обновляется. Заполните <b>BITRIX_WEBHOOK_URL</b>.</div>'
+      : (!st.deals
+          ? '<div class="warn">· Снимок пуст. Нажмите «Обновить из Битрикса» — первый сбор может занять минуту.</div>'
+          : '');
+
+    document.getElementById('st-status').innerHTML = st.last_sync
+      ? `воронка ${esc(st.category_id)} · сделок ${esc(st.deals)} · обновлено ${when(st.last_sync)}`
+      : `воронка ${esc(st.category_id)} · снимок ещё не собирался`;
+
+    // Средний срок дела целиком — главная цифра, поэтому отдельными плитками.
+    const done = ov.done;
+    document.getElementById('st-overall').innerHTML = `
+      <div class="kpi-group"><div class="tiles">
+        <div class="tile"><b>${done.enough ? days(done.avg_days) : '—'}</b>
+          <span>Средний срок дела</span>
+          <span class="sub">${done.enough
+            ? 'медиана ' + days(done.median_days)
+            : 'мало завершённых дел: ' + esc(done.count)}</span></div>
+        <div class="tile"><b>${esc(done.count)}</b>
+          <span>Дошли до «${esc(ov.done_stage_name)}»</span>
+          <span class="sub">самое долгое: ${days(done.max_days)}</span></div>
+        <div class="tile"><b>${esc(ov.in_progress)}</b>
+          <span>В работе сейчас</span></div>
+        <div class="tile"><b>${esc(ov.failed)}</b>
+          <span>Отказы и провалы</span>
+          <span class="sub">в средний срок не входят</span></div>
+      </div></div>`;
+
+    const t = document.getElementById('st-rows');
+    const rows = d.funnel.stages;
+    if(!rows.length){
+      t.innerHTML = '<tr><td colspan="5" class="empty">Стадии не загружены. Нажмите «Обновить из Битрикса».</td></tr>';
+    } else {
+      t.innerHTML = rows.map(s => {
+        const k = STAGE_KIND[s.kind] || STAGE_KIND.work;
+        const mark = k.cls ? ` <span class="badge ${k.cls}" title="${esc(k.hint)}">${esc(k.hint)}</span>` : '';
+        const alt = s.alternative
+          ? ' <span class="badge b-neutral" title="Клиент проходит одну из процедур, не обе">одна из двух</span>' : '';
+        // Мало данных — показываем не цифру, а честное «мало данных»:
+        // среднее по двум делам это не статистика.
+        const avg = s.enough ? days(s.avg_days)
+          : `<span class="muted" title="Завершённых прохождений: ${esc(s.count)}">мало данных</span>`;
+        return `<tr>
+          <td>${esc(s.name)}${mark}${alt}</td>
+          <td>${s.current ? `<b>${esc(s.current)}</b>` : '<span class="muted">—</span>'}</td>
+          <td>${avg}</td>
+          <td class="muted">${s.enough ? days(s.median_days) : '—'}</td>
+          <td class="${s.longest_wait_days > 180 ? 'due-late' : 'muted'}">${days(s.longest_wait_days)}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    document.getElementById('st-note').innerHTML =
+      `Средний срок дела считается от создания до стадии «${esc(ov.done_stage_name)}» и только по дошедшим до неё: ` +
+      'у незавершённых срок ещё не истёк, и они занизили бы среднее. ' +
+      'Срок стадии — по завершённым прохождениям, без тех, кто на ней сейчас. ' +
+      `Если завершённых прохождений меньше ${esc(st.min_sample)}, пишем «мало данных» вместо цифры. ` +
+      'Медиана рядом со средним: одно затянувшееся дело сильно сдвигает среднее.';
+  }
+
+  function syncStages(btn){
+    return busy(btn, 'Обновляю…', async () => {
+      const r = await api('/stages/sync?force=true',{method:'POST'});
+      if(r.error) alert('Не удалось обновить: ' + r.error);
+      else if(r.skipped) alert('Пропущено: ' + r.skipped);
+      else alert(`Обновлено. Стадий: ${r.stages}, сделок: ${r.deals}, записей истории: ${r.history}.`);
+      loadStages();
+    });
+  }
+
+  // ---- Тренд оценок (inline SVG, без внешних библиотек) ----
+  async function loadTrend(){
+    const data = await api('/nps/trend?months=6');
+    const box = document.getElementById('nps-chart');
+    if(!data.some(d => d.count)){
+      box.innerHTML = '<div class="empty">Оценок пока нет — график появится после первых ответов клиентов.</div>';
       return;
     }
-    t.innerHTML = list.map(n => {
-      const when = (n.created_at||'').replace('T',' ').slice(0,16);
-      const review = n.left_review
-        ? '<span class="badge b-ok">Да</span>'
-        : '<span class="muted">—</span>';
-      return `<tr>
-        <td>${n.email}</td>
-        <td><span class="badge b-ok">${n.score}/10</span></td>
-        <td>${review}</td>
-        <td class="muted">${when}</td>
-      </tr>`;
+    const W = 640, H = 150, padX = 34, padB = 22, padT = 10;
+    const innerW = W - padX*2, innerH = H - padB - padT;
+    const maxCount = Math.max(1, ...data.map(d => d.count));
+    const step = innerW / data.length;
+    const bw = Math.min(46, step * 0.55);
+
+    // Сейчас основной сервис сохраняет только 8-10, все средние лежат в этом
+    // диапазоне, и узкая шкала показывает разницу. Как только пойдут оценки
+    // ниже, средняя провалится — при зашитой шкале линия молча легла бы на
+    // нижнюю границу, поэтому предел считаем по данным, а не по константе.
+    const SAVED_FLOOR = 8;
+    const avgs = data.filter(d => d.count).map(d => d.avg_score);
+    const hasLow = avgs.some(v => v < SAVED_FLOOR);
+    const lo = hasLow ? 0 : SAVED_FLOOR;
+    const ticks = hasLow ? [0, 5, 10] : [8, 9, 10];
+    document.getElementById('trend-note').innerHTML = hasLow
+      ? 'Столбцы — сколько оценок пришло за месяц, линия — средняя оценка по всей шкале 0-10.'
+      : 'В базу пока сохраняются только оценки <b>8-10</b> (промоутеры): основной сервис '
+        + 'отбрасывает остальные до записи. Поэтому линия — средняя по промоутерам, '
+        + 'а не классический NPS. Шкала развернётся на 0-10, как только низкие оценки начнут доходить.';
+    document.getElementById('trend-legend').textContent =
+      hasLow ? 'Средняя оценка' : 'Средняя оценка (8-10)';
+
+    // Столбцы — количество оценок за месяц.
+    const bars = data.map((d,i) => {
+      const h = d.count / maxCount * innerH;
+      const x = padX + step*i + (step - bw)/2;
+      return `<rect x="${x.toFixed(1)}" y="${(padT+innerH-h).toFixed(1)}" width="${bw.toFixed(1)}"
+        height="${Math.max(h,0).toFixed(1)}" rx="4" fill="rgba(215,174,94,.45)"><title>${esc(d.month)}: ${d.count} оценок</title></rect>`;
     }).join('');
+
+    // Линия — средняя оценка. Месяцы без оценок разрывают линию.
+    const y = v => padT + innerH - ((Math.min(Math.max(v,lo),10) - lo) / (10 - lo)) * innerH;
+    const segments = [];
+    let current = [];
+    data.forEach((d,i) => {
+      if(d.count){ current.push([padX + step*i + step/2, y(d.avg_score)]); }
+      else if(current.length){ segments.push(current); current = []; }
+    });
+    if(current.length) segments.push(current);
+    const line = segments.map(seg =>
+      `<polyline fill="none" stroke="#4bbd86" stroke-width="2" stroke-linejoin="round"
+        points="${seg.map(p => p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')}"/>`).join('');
+    const dots = data.map((d,i) => d.count
+      ? `<circle cx="${(padX + step*i + step/2).toFixed(1)}" cy="${y(d.avg_score).toFixed(1)}" r="3.5"
+          fill="#4bbd86"><title>${esc(d.month)}: средняя ${d.avg_score}</title></circle>` : '').join('');
+
+    const labels = data.map((d,i) =>
+      `<text x="${(padX + step*i + step/2).toFixed(1)}" y="${H-6}" text-anchor="middle"
+        font-size="10" fill="#9aa0ac">${esc(d.month.slice(5))}.${esc(d.month.slice(2,4))}</text>`).join('');
+    const axis = ticks.map(v =>
+      `<text x="${padX-8}" y="${(y(v)+3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="#9aa0ac">${v}</text>
+       <line x1="${padX}" y1="${y(v).toFixed(1)}" x2="${W-padX}" y2="${y(v).toFixed(1)}"
+         stroke="#2a2c35" stroke-width="1"/>`).join('');
+
+    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"
+      role="img" aria-label="Тренд оценок по месяцам">${axis}${bars}${line}${dots}${labels}</svg>`;
   }
 
+  // ---- Пользователи ----
+  async function loadUsers(){
+    const params = new URLSearchParams({
+      q: document.getElementById('q').value.trim(),
+      status_filter: document.getElementById('u-status').value,
+      sort: document.getElementById('u-sort').value,
+      limit: PAGE,
+      offset: pages.users * PAGE,
+    });
+    const data = await api('/users?'+params);
+    const rows = document.getElementById('rows');
+    if(!data.items.length){
+      rows.innerHTML = `<tr><td colspan="5" class="empty">${
+        data.total === 0 && !params.get('q') && !params.get('status_filter')
+          ? 'Пока нет пользователей. Войдите в приложение под каким-нибудь e-mail — он появится здесь.'
+          : 'Под фильтры никто не подходит.'}</td></tr>`;
+    } else {
+      rows.innerHTML = data.items.map(u => {
+        const badge = u.blocked ? '<span class="badge b-blocked">Заблокирован</span>'
+                                : '<span class="badge b-ok">Активен</span>';
+        const consent = u.consent_at ? '' : ' <span class="badge b-mute">нет согласия</span>';
+        const blockBtn = u.blocked
+          ? `<button class="btn-warn" onclick="block('${jsq(u.email)}',false)">Разблокировать</button>`
+          : `<button class="btn-warn" onclick="block('${jsq(u.email)}',true)">Заблокировать</button>`;
+        return `<tr>
+          <td><div>${esc(u.name || '—')}</div><div class="muted">${esc(u.email)}</div></td>
+          <td>${esc(u.phone || '—')}</td>
+          <td class="muted">${when(u.last_seen)}</td>
+          <td>${badge}${consent}</td>
+          <td><div class="row-actions">
+            ${blockBtn}
+            <button class="btn-ghost" onclick="reset('${jsq(u.email)}')">Сбросить сессию</button>
+            <button class="btn-danger" onclick="del('${jsq(u.email)}')">Удалить (152-ФЗ)</button>
+          </div></td>
+        </tr>`;
+      }).join('');
+    }
+    renderPager('users','u',data);
+  }
+
+  async function block(email,blocked){
+    await api('/users/'+encodeURIComponent(email)+'/block',
+      {method:'POST',body:JSON.stringify({blocked})});
+    loadUsers(); invalidate('dashboard');
+  }
+  async function reset(email){
+    await api('/users/'+encodeURIComponent(email)+'/reset',{method:'POST'});
+    alert('Сессии сброшены — на всех устройствах потребуется вход заново.');
+  }
+  async function del(email){
+    if(!confirm('Удалить ВСЕ данные пользователя '+email+'? Это действие необратимо (152-ФЗ, право на забвение).')) return;
+    await api('/users/'+encodeURIComponent(email),{method:'DELETE'});
+    loadUsers(); invalidate('dashboard');
+  }
+
+  // ---- Коллекторы ----
   async function loadCollectors(){
-    const r = await fetch('/collectors/all',{headers:headers()});
-    if(r.status===401||r.status===403){ return; }
-    const list = await r.json();
+    const params = new URLSearchParams({
+      q: document.getElementById('c-q').value.trim(),
+      status_filter: document.getElementById('c-status').value,
+      category: document.getElementById('c-category').value,
+      sort: document.getElementById('c-sort').value,
+      limit: PAGE,
+      offset: pages.col * PAGE,
+    });
+    const data = await api('/collectors?'+params);
     const t = document.getElementById('col-rows');
-    if(!list.length){ t.innerHTML='<tr><td colspan="5" class="empty">Пока нет номеров в базе.</td></tr>'; return; }
-    t.innerHTML = list.map(n=>{
-      const badge = n.status==='confirmed'
-        ? '<span class="badge b-blocked">Заблокирован</span>'
-        : '<span class="badge b-ok">На проверке</span>';
-      return `<tr>
-        <td>+7 ${n.phone}</td><td>${n.category}</td><td>${n.reports}</td><td>${badge}</td>
-        <td><button class="btn-danger" onclick="delCollector('${n.phone}')">Удалить</button></td>
-      </tr>`;
-    }).join('');
+    if(!data.items.length){
+      t.innerHTML = `<tr><td colspan="6" class="empty">${
+        data.total === 0 ? 'Пока нет номеров в базе.' : 'Под фильтры ничего не подходит.'}</td></tr>`;
+    } else {
+      const badges = {
+        confirmed:'<span class="badge b-blocked">Заблокирован</span>',
+        pending:'<span class="badge b-gold">На проверке</span>',
+        rejected:'<span class="badge b-mute">Отклонён</span>',
+      };
+      t.innerHTML = data.items.map(n => `<tr>
+        <td class="mono">${fmtPhone(n.phone)}</td>
+        <td>${esc(n.category)}</td>
+        <td>${esc(n.reports)}</td>
+        <td class="muted">${when(n.last_reported)}</td>
+        <td>${badges[n.status] || '<span class="badge b-mute">'+esc(n.status)+'</span>'}</td>
+        <td><button class="btn-danger" onclick="delCollector('${jsq(n.phone)}')">Удалить</button></td>
+      </tr>`).join('');
+    }
+    renderPager('col','c',data);
   }
   async function delCollector(phone){
     if(!confirm('Удалить номер +7 '+phone+' из базы?')) return;
-    await fetch('/collectors/'+encodeURIComponent(phone),{method:'DELETE',headers:headers()});
-    loadCollectors();
+    await api('/collectors/'+encodeURIComponent(phone),{method:'DELETE'});
+    loadCollectors(); invalidate('dashboard');
   }
 
+  // ---- Белый список ----
   async function loadWhitelist(){
-    const r = await fetch('/collectors/whitelist',{headers:headers()});
-    if(r.status===401||r.status===403){ return; }
-    const list = await r.json();
+    const list = await api('/collectors/whitelist');
     const t = document.getElementById('wl-rows');
     if(!list.length){ t.innerHTML='<tr><td colspan="3" class="empty">Белый список пуст. Добавьте ваши номера, суд, ФССП.</td></tr>'; return; }
-    t.innerHTML = list.map(w=>`<tr>
-      <td>+7 ${w.phone}</td><td>${w.label||'—'}</td>
-      <td><button class="btn-danger" onclick="delWhitelist('${w.phone}')">Убрать</button></td>
+    t.innerHTML = list.map(w => `<tr>
+      <td class="mono">${fmtPhone(w.phone)}</td><td>${esc(w.label || '—')}</td>
+      <td><button class="btn-danger" onclick="delWhitelist('${jsq(w.phone)}')">Убрать</button></td>
     </tr>`).join('');
   }
   async function addWhitelist(){
     const phone=document.getElementById('wl-phone').value.trim();
     const label=document.getElementById('wl-label').value.trim();
     if(!phone){ alert('Введите номер'); return; }
-    await fetch('/collectors/whitelist',{method:'POST',headers:headers(),body:JSON.stringify({phone,label})});
+    try{
+      await api('/collectors/whitelist',{method:'POST',body:JSON.stringify({phone,label})});
+    }catch(e){ alert('Не удалось добавить номер — проверьте формат (10 цифр без +7).'); return; }
     document.getElementById('wl-phone').value=''; document.getElementById('wl-label').value='';
-    loadWhitelist(); loadCollectors();
+    loadWhitelist(); loadCollectors(); invalidate('dashboard');
   }
   async function delWhitelist(phone){
-    await fetch('/collectors/whitelist/'+encodeURIComponent(phone),{method:'DELETE',headers:headers()});
-    loadWhitelist();
+    await api('/collectors/whitelist/'+encodeURIComponent(phone),{method:'DELETE'});
+    loadWhitelist(); invalidate('dashboard');
   }
 
-  async function loadStats(){
-    const r = await fetch(API+'/stats',{headers:headers()});
-    if(r.status===401||r.status===403){ return logout(); }
-    const s = await r.json();
-    const t = [['Всего пользователей',s.total],['Активны за 7 дней',s.active_7d],['Заблокировано',s.blocked],['Всего входов',s.logins]];
-    document.getElementById('tiles').innerHTML = t.map(x=>`<div class="tile"><b>${x[1]}</b><span>${x[0]}</span></div>`).join('');
+  // ---- Оценки клиентов ----
+  const SCORE_BADGE = { low:'b-low', neutral:'b-neutral', top:'b-ok' };
+
+  // Единственное место, где диапазоны оценок превращаются в текст. Всё
+  // остальное берёт их отсюда, поэтому смена порога в настройках сервера
+  // сразу отражается в подписях, а не оставляет их врать.
+  function applyGrades(g){
+    const opt = (v, text) => {
+      const o = document.querySelector('#n-kind option[value="'+v+'"]');
+      if(o) o.textContent = text;
+    };
+    opt('low',     `Требуют контроля (${g.low_label})`);
+    opt('neutral', `Нейтральные (${g.neutral_label})`);
+    opt('top',     `Лучшие (${g.top_label})`);
+    // Заголовки рейтинга менеджеров и подпись под ним.
+    const th = document.getElementById('q-th-top');
+    if(th) th.textContent = `Лучших (${g.top_label})`;
+    const tl = document.getElementById('q-th-low');
+    if(tl) tl.textContent = `Низких (${g.low_label})`;
+    const note = document.getElementById('q-rule');
+    if(note) note.innerHTML =
+      `Итог = количество лучших оценок (${esc(g.top_label)}) минус количество низких (${esc(g.low_label)}). ` +
+      (g.has_neutral ? `Нейтральные (${esc(g.neutral_label)}) не учитываются. ` : '') +
+      `Лидером может стать только менеджер, получивший хотя бы одну оценку ${esc(g.top_label)}.`;
   }
 
-  async function loadUsers(){
-    const q = document.getElementById('q').value.trim();
-    const r = await fetch(API+'/users?q='+encodeURIComponent(q),{headers:headers()});
-    if(r.status===401||r.status===403){ return logout(); }
-    const users = await r.json();
-    const rows = document.getElementById('rows');
-    if(!users.length){ rows.innerHTML = '<tr><td colspan="5" class="empty">Пока нет пользователей. Войдите в приложение под каким-нибудь e-mail — он появится здесь.</td></tr>'; return; }
-    rows.innerHTML = users.map(u=>{
-      const badge = u.blocked ? '<span class="badge b-blocked">Заблокирован</span>' : '<span class="badge b-ok">Активен</span>';
-      const name = u.name || '—';
-      const last = u.last_seen ? u.last_seen.replace('T',' ').slice(0,16) : '—';
-      const blockBtn = u.blocked
-        ? `<button class="btn-warn" onclick="block('${u.email}',false)">Разблокировать</button>`
-        : `<button class="btn-warn" onclick="block('${u.email}',true)">Заблокировать</button>`;
-      return `<tr>
-        <td><div>${name}</div><div class="muted">${u.email}</div></td>
-        <td>${u.phone||'—'}</td>
-        <td class="muted">${last}</td>
-        <td>${badge}</td>
-        <td><div class="row-actions">
-          ${blockBtn}
-          <button class="btn-ghost" onclick="reset('${u.email}')">Сбросить сессию</button>
-          <button class="btn-danger" onclick="del('${u.email}')">Удалить (152-ФЗ)</button>
-        </div></td>
-      </tr>`;
-    }).join('');
+  async function loadNps(){
+    const params = new URLSearchParams({
+      kind: document.getElementById('n-kind').value,
+      limit: PAGE,
+      offset: pages.nps * PAGE,
+    });
+    const data = await api('/nps?'+params);
+
+    // Границы градации приходят с сервера: держать «0-6» в разметке значит
+    // однажды получить подпись, не совпадающую с настройкой.
+    if(data.grades) applyGrades(data.grades);
+
+    const t = document.getElementById('nps-rows');
+    if(!data.items.length){
+      t.innerHTML = `<tr><td colspan="6" class="empty">${
+        data.total === 0
+          ? `Пока нет оценок. Низкие (${esc((data.grades||{}).low_label||'')}) появятся здесь, как только основной сервис начнёт их сохранять.`
+          : 'Под фильтр ничего не подходит.'}</td></tr>`;
+    } else {
+      t.innerHTML = data.items.map(n => {
+        const low = n.category === 'low';
+        // Менеджер пуст, пока воркер не сходил в Битрикс за ответственным.
+        const manager = n.manager_name
+          ? esc(n.manager_name)
+          : (n.manager_id ? 'ID '+esc(n.manager_id)
+                          : '<span class="muted">не определён</span>');
+        let qc = '<span class="muted">—</span>';
+        if(low){
+          if(n.qc_task_id) qc = `<span class="badge b-ok">Задача №${esc(n.qc_task_id)}</span>`;
+          else if(n.attempts) qc = `<span class="badge b-blocked" title="${esc(n.last_error||'')}">Не создана (${esc(n.attempts)})</span>`;
+          else qc = '<span class="badge b-gold">В очереди</span>';
+        }
+        return `<tr class="${low ? 'row-low' : ''}">
+          <td>${esc(n.email)}</td>
+          <td><span class="badge ${SCORE_BADGE[n.category]||'b-neutral'}">${esc(n.score)}/10</span></td>
+          <td>${manager}</td>
+          <td>${qc}</td>
+          <td>${n.left_review ? '<span class="badge b-ok">Да</span>' : '<span class="muted">—</span>'}</td>
+          <td class="muted">${when(n.created_at)}</td>
+        </tr>`;
+      }).join('');
+    }
+    renderPager('nps','n',data);
   }
 
-  let t=null;
-  function debouncedLoad(){ clearTimeout(t); t=setTimeout(loadUsers,300); }
+  // ---- Отдел сопровождения: отказы ----
+  let svReasons = {}, svSources = {}, rfFiltersFilled = false;
 
-  async function block(email,blocked){
-    await fetch(API+'/users/'+encodeURIComponent(email)+'/block',{method:'POST',headers:headers(),body:JSON.stringify({blocked})});
-    loadUsers(); loadStats();
-  }
-  async function reset(email){
-    await fetch(API+'/users/'+encodeURIComponent(email)+'/reset',{method:'POST',headers:headers()});
-    alert('Сессии сброшены — на всех устройствах потребуется вход заново.');
-  }
-  async function del(email){
-    if(!confirm('Удалить ВСЕ данные пользователя '+email+'? Это действие необратимо (152-ФЗ, право на забвение).')) return;
-    await fetch(API+'/users/'+encodeURIComponent(email),{method:'DELETE',headers:headers()});
-    loadUsers(); loadStats();
+  // Доля отказов важнее числа: у менеджера с 50 делами и 10 отказами это
+  // 20 %, у менеджера с 10 делами и 5 отказами — 50 %. По абсолютным числам
+  // первый выглядит вдвое хуже, хотя работает вдвое лучше.
+  function rateClass(rate){
+    return rate >= 40 ? 'var(--danger)' : rate >= 20 ? 'var(--gold)' : 'var(--ok)';
   }
 
+  async function loadSupervision(){
+    const d = await api('/supervision');
+    const m = d.managers, st = d.status;
+    svReasons = m.reasons || {}; svSources = m.sources || {};
+
+    const problems = [];
+    if(!st.bitrix_configured) problems.push('не задан <b>BITRIX_WEBHOOK_URL</b> — задачи не ставятся');
+    if(!st.qc_head_set) problems.push('не задан <b>BITRIX_QC_HEAD_ID</b> — некому выяснять причины отказов');
+    if(!st.support_head_set) problems.push('не задан <b>BITRIX_SUPPORT_HEAD_ID</b> — некому перехватывать зависшие дела');
+    if(st.reason_unknown) problems.push(`причина не выяснена у <b>${esc(st.reason_unknown)}</b> отказов`);
+    document.getElementById('sv-warn').innerHTML = problems.length
+      ? `<div class="warn">${problems.map(p => '· '+p).join('<br>')}</div>` : '';
+
+    const t = document.getElementById('sv-rows');
+    if(!m.managers.length){
+      t.innerHTML = '<tr><td colspan="7" class="empty">Сделок в снимке нет. Обновите данные из Битрикса на вкладке «Дашборд».</td></tr>';
+    } else {
+      t.innerHTML = m.managers.map(x => `<tr>
+        <td>${esc(x.manager_name)}</td>
+        <td>${esc(x.deals)}</td>
+        <td class="muted">${esc(x.in_progress)}</td>
+        <td>${x.refusals ? `<span class="badge b-low">${esc(x.refusals)}</span>` : '<span class="muted">—</span>'}</td>
+        <td><b style="color:${rateClass(x.refusal_rate)}">${esc(x.refusal_rate)}%</b></td>
+        <td>${x.manager_fault ? `<span class="badge b-low">${esc(x.manager_fault)}</span>` : '<span class="muted">—</span>'}</td>
+        <td class="muted">${x.reason_unknown || '—'}</td>
+      </tr>`).join('');
+    }
+
+    const tot = m.totals;
+    document.getElementById('sv-note').innerHTML =
+      `Всего дел ${esc(tot.deals)}, отказов ${esc(tot.refusals)} (${esc(tot.refusal_rate)}%). ` +
+      'Доля считается от всех дел менеджера, а не только от закрытых. ' +
+      'В колонке «Из-за менеджера» — только отказы с причиной «Не устроил менеджер»: ' +
+      'остальные причины к его работе не относятся и на оценку влиять не должны.';
+
+    // Фильтр по менеджерам наполняем отсюда — список тот же.
+    if(!rfFiltersFilled){
+      const sel = document.getElementById('rf-manager');
+      sel.innerHTML = '<option value="0">Все менеджеры</option>' +
+        m.managers.map(x => `<option value="${esc(x.manager_id)}">${esc(x.manager_name)}</option>`).join('');
+      const rs = document.getElementById('rf-reason');
+      rs.innerHTML = '<option value="">Все причины</option>' +
+        Object.entries(svReasons).map(([k,v]) => `<option value="${esc(k)}">${esc(v)}</option>`).join('');
+      rfFiltersFilled = true;
+    }
+  }
+
+  async function loadRefusals(){
+    const params = new URLSearchParams({
+      manager_id: document.getElementById('rf-manager').value,
+      reason: document.getElementById('rf-reason').value,
+      unknown_only: document.getElementById('rf-unknown').checked,
+      limit: PAGE,
+      offset: pages.rf * PAGE,
+    });
+    const data = await api('/supervision/refusals?'+params);
+    const t = document.getElementById('rf-rows');
+    if(!data.items.length){
+      t.innerHTML = `<tr><td colspan="6" class="empty">${
+        data.total === 0 ? 'Отказов не найдено.' : 'Под фильтры ничего не подходит.'}</td></tr>`;
+    } else {
+      t.innerHTML = data.items.map(r => {
+        // Пустая причина — не «нет данных», а «не выяснено»: это задача,
+        // а не свойство отказа, поэтому кнопка прямо в строке.
+        const reason = r.reason
+          ? `<span class="badge ${r.manager_fault ? 'b-low' : 'b-neutral'}">${esc(r.reason_label)}</span>` +
+            (r.source_label ? ` <span class="muted" title="кто назвал причину">${esc(r.source_label)}</span>` : '') +
+            (r.comment ? `<div class="cm-text">${esc(r.comment)}</div>` : '')
+          : (r.qc_task_id
+              ? `<span class="badge b-gold">Выясняется, задача №${esc(r.qc_task_id)}</span>`
+              : '<span class="badge b-gold">Не выяснена</span>');
+        return `<tr class="${r.manager_fault ? 'row-low' : ''}">
+          <td class="mono">№${esc(r.deal_id)}</td>
+          <td>${esc(r.manager_name)}</td>
+          <td class="muted">${esc(r.stage_name)}</td>
+          <td class="muted">${r.days_lived === null ? '—' : esc(r.days_lived) + ' дн.'}</td>
+          <td>${reason}</td>
+          <td><button class="btn-ghost" onclick="askReason(${r.deal_id})">${r.reason ? 'Изменить' : 'Указать причину'}</button></td>
+        </tr>`;
+      }).join('');
+    }
+    renderPager('rf','rf',data);
+  }
+
+  async function askReason(dealId){
+    const codes = Object.keys(svReasons);
+    const list = codes.map((k,i) => `${i+1}. ${svReasons[k]}`).join('\n');
+    const pick = prompt(`Причина отказа по сделке №${dealId}:\n\n${list}\n\nВведите номер:`);
+    if(pick === null) return;
+    const code = codes[parseInt(pick,10) - 1];
+    if(!code){ alert('Такого номера в списке нет.'); return; }
+    const srcCodes = Object.keys(svSources).filter(s => s !== 'bitrix');
+    const srcList = srcCodes.map((k,i) => `${i+1}. ${svSources[k]}`).join('\n');
+    const src = prompt(`Кто назвал причину?\n\n${srcList}\n\nВведите номер:`, '2');
+    if(src === null) return;
+    const source = srcCodes[parseInt(src,10) - 1];
+    if(!source){ alert('Такого номера в списке нет.'); return; }
+    const comment = prompt('Комментарий (необязательно):') || '';
+    await api('/supervision/refusals/'+dealId,
+      {method:'POST',body:JSON.stringify({reason:code, source, comment})});
+    loadRefusals(); loadSupervision();
+  }
+
+  // ---- Дела в зоне риска ----
+  async function loadStuck(){
+    const d = await api('/supervision/stuck?limit=50');
+    document.getElementById('st-risk-note').innerHTML =
+      'Норма у каждой стадии своя — медиана её прохождения по вашим же данным. ' +
+      'Иначе «Реализация» с её месяцами считалась бы зависшей наравне со «Сбором документов». ' +
+      `Всего в зоне риска: <b>${esc(d.total)}</b>.`;
+    const t = document.getElementById('risk-rows');
+    if(!d.items.length){
+      t.innerHTML = '<tr><td colspan="7" class="empty">Зависших дел нет.</td></tr>';
+      return;
+    }
+    t.innerHTML = d.items.map(x => `<tr class="${x.over_days > x.limit_days ? 'row-overdue' : ''}">
+      <td class="mono">№${esc(x.deal_id)}</td>
+      <td>${esc(x.manager_name)}</td>
+      <td class="muted">${esc(x.stage_name)}</td>
+      <td><b class="due-late">${esc(Math.round(x.days_on_stage))} дн.</b></td>
+      <td class="muted">${x.median_days ? esc(Math.round(x.median_days)) + ' дн.' : 'нет данных'}</td>
+      <td>+${esc(Math.round(x.over_days))} дн.</td>
+      <td>${x.alerted
+        ? '<span class="badge b-ok">Задача поставлена</span>'
+        : '<span class="badge b-gold">В очереди</span>'}</td>
+    </tr>`).join('');
+  }
+
+  // ---- Жалобы ----
+  const CM_BADGE = { open:'b-gold', in_progress:'b-ok', resolved:'b-neutral', rejected:'b-neutral' };
+  let cmCatsFilled = false;
+
+  async function loadComplaints(){
+    const params = new URLSearchParams({
+      q: document.getElementById('cm-q').value.trim(),
+      status_filter: document.getElementById('cm-status').value,
+      category: document.getElementById('cm-category').value,
+      overdue: document.getElementById('cm-overdue').checked,
+      limit: PAGE,
+      offset: pages.cmp * PAGE,
+    });
+    const data = await api('/complaints?'+params);
+
+    // Темы приходят с сервера — не дублируем список в разметке.
+    if(!cmCatsFilled && data.categories){
+      const sel = document.getElementById('cm-category');
+      sel.innerHTML = '<option value="">Все темы</option>' +
+        Object.entries(data.categories).map(([k,v]) =>
+          `<option value="${esc(k)}">${esc(v)}</option>`).join('');
+      cmCatsFilled = true;
+    }
+
+    const overdueNow = data.items.filter(c => c.overdue).length;
+    document.getElementById('cm-warn').innerHTML = overdueNow
+      ? `<div class="warn">· <b>${overdueNow}</b> жалоб просрочены. Срок ответа 10 дней установлен
+         Законом о защите прав потребителей — просрочка даёт клиенту право на неустойку.</div>`
+      : '';
+
+    const t = document.getElementById('cm-rows');
+    if(!data.items.length){
+      t.innerHTML = `<tr><td colspan="7" class="empty">${
+        data.total === 0
+          ? 'Жалоб пока нет. Они появятся здесь, как только приложение научится их отправлять.'
+          : 'Под фильтры ничего не подходит.'}</td></tr>`;
+    } else {
+      t.innerHTML = data.items.map(c => {
+        const task = c.qc_task_id
+          ? `<span class="badge b-ok">№${esc(c.qc_task_id)}</span>`
+          : (c.attempts
+              ? `<span class="badge b-blocked" title="${esc(c.last_error||'')}">Не создана (${esc(c.attempts)})</span>`
+              : '<span class="badge b-gold">В очереди</span>');
+        const open = c.status === 'open' || c.status === 'in_progress';
+        const actions = open ? `<div class="row-actions">
+            ${c.status === 'open' ? `<button class="btn-ghost" onclick="cmStatus(${c.id},'in_progress')">В работу</button>` : ''}
+            <button class="btn-warn" onclick="cmResolve(${c.id})">Решена</button>
+            <button class="btn-danger" onclick="cmStatus(${c.id},'rejected')">Отклонить</button>
+          </div>` : `<span class="muted">${esc(c.resolution || '—')}</span>`;
+        return `<tr class="${c.overdue ? 'row-overdue' : ''}">
+          <td>${esc(c.email)}</td>
+          <td>${esc(c.category_label)}</td>
+          <td><div class="cm-text">${esc(c.text)}</div></td>
+          <td class="${c.overdue ? 'due-late' : 'muted'}">${esc((c.answer_due||'').slice(0,10))}</td>
+          <td><span class="badge ${CM_BADGE[c.status]||'b-neutral'}">${esc(c.status_label)}</span></td>
+          <td>${task}</td>
+          <td>${actions}</td>
+        </tr>`;
+      }).join('');
+    }
+    renderPager('cmp','cm',data);
+  }
+
+  async function cmStatus(id, status, resolution){
+    await api('/complaints/'+id+'/status',
+      {method:'POST',body:JSON.stringify({status, resolution: resolution || ''})});
+    loadComplaints(); invalidate('dashboard');
+  }
+  function cmResolve(id){
+    const what = prompt('Что ответили клиенту? Текст попадёт в карточку жалобы.');
+    if(what === null) return;   // отменили — статус не трогаем
+    cmStatus(id, 'resolved', what);
+  }
+
+  // ---- Контроль качества и рейтинг ----
+  function currentMonth(){
+    const v = document.getElementById('q-month').value;
+    if(v) return v;
+    const d = new Date();
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  }
+
+  async function loadQuality(){
+    const month = currentMonth();
+    document.getElementById('q-month').value = month;
+    const [st, r] = await Promise.all([
+      api('/quality/status'),
+      api('/quality/rating?month='+encodeURIComponent(month)),
+    ]);
+
+    if(st.grades) applyGrades(st.grades);
+
+    // Молча не работающая автоматика хуже отсутствующей — говорим прямо,
+    // чего не хватает в настройках.
+    const problems = [];
+    if(!st.bitrix_configured) problems.push('не задан <b>BITRIX_WEBHOOK_URL</b> — задачи и отчёты не отправляются');
+    if(!st.qc_head_set) problems.push('не задан <b>BITRIX_QC_HEAD_ID</b> — некому ставить задачи по низким оценкам');
+    if(!st.recipients) problems.push('не заданы ID руководителей — месячный отчёт никому не уйдёт');
+    if(st.stuck_tasks) problems.push(`<b>${st.stuck_tasks}</b> задач так и не создались после всех попыток`);
+    document.getElementById('q-warn').innerHTML = problems.length
+      ? `<div class="warn">${problems.map(p => '· '+p).join('<br>')}</div>` : '';
+
+    const last = st.last_report;
+    document.getElementById('q-status').innerHTML =
+      (st.unlinked_scores ? `не разобрано оценок: ${st.unlinked_scores} · ` : '') +
+      (last ? `последний отчёт: ${esc(last.year_month)} от ${when(last.sent_at)}`
+            : 'отчёты ещё не отправлялись');
+
+    // Итог со знаком: «+3» и «−2» читаются как результат, «3» и «-2» — нет.
+    const signed = v => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v);
+
+    const L = r.leader;
+    document.getElementById('q-leader').innerHTML = L ? `
+      <div class="leader">
+        <span class="crown">🏆</span>
+        <div>
+          <div class="who">${esc(L.manager_name || ('ID '+L.manager_id))}</div>
+          <div class="sub">Лидер месяца ${esc(r.year_month)} · лучших ${esc(L.top)}${
+            L.low ? ' · низких '+esc(L.low) : ''}</div>
+        </div>
+        <div class="pts"><b>${esc(signed(L.net))}</b><span>итог</span></div>
+      </div>` : '';
+
+    const t = document.getElementById('q-rows');
+    if(!r.managers.length){
+      t.innerHTML = '<tr><td colspan="6" class="empty">За этот месяц оценок нет.</td></tr>';
+      return;
+    }
+    t.innerHTML = r.managers.map((m,i) => `<tr>
+      <td class="muted">${i+1}</td>
+      <td>${esc(m.manager_name || ('ID '+m.manager_id))}</td>
+      <td><b style="color:${m.net > 0 ? 'var(--ok)' : m.net < 0 ? 'var(--danger)' : 'var(--muted)'}">${esc(signed(m.net))}</b></td>
+      <td>${m.top ? `<span class="badge b-ok">${esc(m.top)}</span>` : '<span class="muted">—</span>'}</td>
+      <td>${m.low ? `<span class="badge b-low">${esc(m.low)}</span>` : '<span class="muted">—</span>'}</td>
+      <td class="muted">${m.neutral || '—'}</td>
+    </tr>`).join('');
+  }
+
+  // Кнопки блокируем на время запроса: разбор ходит в Битрикс за каждым
+  // клиентом и может занять секунды, а второй клик поставил бы всё заново.
+  async function busy(btn, label, fn){
+    const text = btn.textContent;
+    btn.disabled = true; btn.textContent = label;
+    try { await fn(); } finally { btn.disabled = false; btn.textContent = text; }
+  }
+
+  function syncQuality(btn){
+    return busy(btn, 'Разбираю…', async () => {
+      const r = await api('/quality/sync',{method:'POST'});
+      alert(`Привязано оценок: ${r.linked.linked}\nЗадач создано: ${r.tasks.created}` +
+            (r.tasks.failed ? `\nНе удалось создать: ${r.tasks.failed}` : '') +
+            (r.linked.skipped ? `\nОтложено до следующего раза: ${r.linked.skipped}` : ''));
+      loadNps(); loadQuality();
+    });
+  }
+
+  function sendReport(btn){
+    const month = currentMonth();
+    if(!confirm(`Отправить отчёт за ${month} руководителям контроля качества, сопровождения и генеральному директору?`)) return;
+    return busy(btn, 'Отправляю…', async () => {
+      const r = await api('/quality/report/'+encodeURIComponent(month),{method:'POST'});
+      if(r.already_sent) alert(`Отчёт за ${month} уже отправлялся ${when(r.report.sent_at)}. Повторно — только через воркер с флагом --force.`);
+      else if(r.ok) alert(`Отчёт отправлен. Создано задач: ${r.task_ids.length}.`);
+      else alert('Не отправлено: ' + (r.error || 'неизвестная ошибка'));
+      loadQuality();
+    });
+  }
+
+  checkAuthConfig();
   if(token) showDash();
 </script>
 </body>
