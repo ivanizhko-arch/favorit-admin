@@ -157,16 +157,24 @@ function mockFetch(url) {
                 bitrix_configured: true },
       managers: {
         managers: [
-          { manager_id: 102, manager_name: 'Борис Козлов', deals: 2,
-            refusals: 1, in_progress: 1, done: 0, manager_fault: 0,
+          { manager_id: 102, manager_name: 'Борис Козлов', position: 'Менеджер',
+            deals: 2, refusals: 1, in_progress: 1, done: 0, manager_fault: 0,
             reason_unknown: 1, refusal_rate: 50.0 },
-          { manager_id: 101, manager_name: 'Анна <b>Смирнова</b>', deals: 8,
+          { manager_id: 101, manager_name: 'Анна <b>Смирнова</b>',
+            position: 'Менеджер сопровождения', deals: 8,
             refusals: 2, in_progress: 4, done: 2, manager_fault: 1,
             reason_unknown: 0, refusal_rate: 25.0 },
-          { manager_id: 103, manager_name: 'Кирилл Тихий', deals: 5,
-            refusals: 0, in_progress: 3, done: 2, manager_fault: 0,
+          { manager_id: 103, manager_name: 'Кирилл Тихий', position: '',
+            deals: 5, refusals: 0, in_progress: 3, done: 2, manager_fault: 0,
             reason_unknown: 0, refusal_rate: 0.0 },
         ],
+        hidden: [
+          { manager_id: 200, manager_name: 'Робот <b>Фаворит</b>', deals: 10,
+            refusals: 7, hidden_reason: 'не сотрудник: робот или внешняя учётка' },
+          { manager_id: 201, manager_name: 'Пётр Уволенный', deals: 4,
+            refusals: 2, hidden_reason: 'уволен' },
+        ],
+        hidden_totals: { people: 2, deals: 14, refusals: 9 },
         totals: { deals: 15, refusals: 3, refusal_rate: 20.0, reason_unknown: 1 },
         reasons: { manager: 'Не устроил менеджер', price: 'Цена или нет денег',
                    changed_mind: 'Передумал банкротиться', other: 'Другое' },
@@ -517,6 +525,15 @@ vm.runInContext(code, ctx);
   check('нулевая доля зелёным', sv.includes('var(--ok)'));
   check('колонка «из-за менеджера» отдельно', sv.includes('badge b-low">1<'), '');
   check('XSS в имени менеджера обезврежен', !sv.includes('<b>Смирнова'));
+  check('должность показана', sv.includes('Менеджер сопровождения'));
+  check('пустая должность не ломает строку', sv.includes('>—<'));
+
+  const hid = els['sv-hidden'].innerHTML;
+  check('скрытые посчитаны', hid.includes('2</b> — 14 дел, 9 отказов'), hid);
+  check('скрытые названы поимённо', hid.includes('Робот') && hid.includes('Пётр Уволенный'));
+  check('причина скрытия указана',
+        hid.includes('робот или внешняя учётка') && hid.includes('уволен'));
+  check('XSS в имени скрытого обезврежен', !hid.includes('<b>Фаворит'));
   check('подпись объясняет, что доля от всех дел',
         els['sv-note'].innerHTML.includes('от всех дел менеджера'));
   check('подпись объясняет колонку вины',
