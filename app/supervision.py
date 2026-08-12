@@ -22,7 +22,7 @@
 """
 import logging
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from . import bitrix, stages, store
 from .config import settings
@@ -108,6 +108,34 @@ def _failed_placeholders() -> tuple:
     return failed, ",".join("?" * len(failed)) if failed else "''"
 
 
+def is_manager(user_id: int, card: dict) -> tuple[bool, str]:
+    """Показывать ли этого человека в таблице менеджеров.
+
+    Возвращает (показывать, причина скрытия). Причину сохраняем, чтобы
+    в панели можно было написать, кого и почему убрали: молча пропавшие
+    строки выглядят как потеря данных.
+    """
+    if not user_id:
+        return True, ""          # «Не определён» — дырка в данных, оставляем
+    if user_id in settings.manager_excluded:
+        return False, "исключён вручную"
+    if settings.manager_hide_inactive and not card.get("active", True):
+        return False, "уволен"
+    if (settings.manager_hide_non_employees
+            and card.get("user_type", "employee") != "employee"):
+        return False, "не сотрудник: робот или внешняя учётка"
+    needle = settings.manager_position_contains.strip().lower()
+    if needle and needle not in (card.get("position") or "").lower():
+        return False, "должность не подходит под фильтр"
+    departments = settings.manager_departments
+    if departments:
+        own = {d.strip() for d in (card.get("departments") or "").split(",")
+               if d.strip()}
+        if not (own & departments):
+            return False, "другой отдел"
+    return True, ""
+
+
 def manager_stats() -> dict:
     """Таблица менеджеров: дела, отказы, доля отказов.
 
@@ -115,7 +143,8 @@ def manager_stats() -> dict:
     менеджер с одним завершённым делом и одним отказом получил бы 50 %.
     """
     failed, marks = _failed_placeholders()
-    names = stages.user_names()
+    cards = stages.users()
+    names = {uid: c["name"] for uid, c in cards.items()}
 
     with _conn() as c:
         rows = c.execute("SELECT assigned_by_id, stage_id FROM deal_snapshot"
@@ -167,11 +196,14 @@ def manager_stats() -> dict:
         if mid in by_manager:
             by_manager[mid]["reason_unknown"] = int(u["n"])
 
-    items = []
+    items, hidden = [], []
     for m in by_manager.values():
         m["refusal_rate"] = (round(m["refusals"] * 100 / m["deals"], 1)
                              if m["deals"] else 0.0)
-        items.append(m)
+        card = cards.get(m["manager_id"], {})
+        m["position"] = card.get("position", "")
+        show, why = is_manager(m["manager_id"], card)
+        (items if show else hidden).append({**m, "hidden_reason": why})
     # Сначала те, у кого доля отказов выше — ради них таблица и нужна.
     items.sort(key=lambda m: (-m["refusal_rate"], -m["refusals"],
                               m["manager_name"]))
@@ -180,6 +212,14 @@ def manager_stats() -> dict:
     totals_ref = sum(m["refusals"] for m in items)
     return {
         "managers": items,
+        # Скрытых показываем сводкой: иначе сумма по таблице не сойдётся
+        # с числом сделок в Битриксе, и это выглядит как потеря данных.
+        "hidden": sorted(hidden, key=lambda m: -m["deals"]),
+        "hidden_totals": {
+            "people": len(hidden),
+            "deals": sum(m["deals"] for m in hidden),
+            "refusals": sum(m["refusals"] for m in hidden),
+        },
         "totals": {
             "deals": totals_deals,
             "refusals": totals_ref,
@@ -365,6 +405,21 @@ def _task_ready(responsible: int) -> bool:
     return bool(bitrix.configured() and responsible)
 
 
+def _baseline_needed(fresh_count: int) -> bool:
+    """Нужно ли сначала отметить накопленное, не создавая задач.
+
+    Срабатывает один раз: пока в журнале предупреждений пусто, а зависших
+    дел разом больше порога. Дальше журнал не пуст, и всё идёт обычным
+    порядком — по новым зависаниям.
+    """
+    if fresh_count <= settings.stuck_baseline_threshold:
+        return False
+    with _conn() as c:
+        seen = c.execute("SELECT COUNT(*) n FROM deal_stuck_alert"
+                         ).fetchone()["n"]
+    return int(seen) == 0
+
+
 def ask_refusal_reasons() -> dict:
     """По каждому новому отказу без причины — задача контролю качества.
 
@@ -372,17 +427,23 @@ def ask_refusal_reasons() -> dict:
     Механика та же, что уже работает для низких оценок.
     """
     failed, marks = _failed_placeholders()
+    # Отсечка по возрасту. В воронке лежат отказы за все годы работы, и без
+    # неё первый запуск поставил бы задачу по каждому: спрашивать причину
+    # у клиента, ушедшего три года назад, бессмысленно.
+    cutoff = _iso(_now() - timedelta(
+        days=settings.refusal_reason_max_age_days))
     with _conn() as c:
         rows = c.execute(
             "SELECT d.deal_id, d.assigned_by_id, d.stage_id "
             "FROM deal_snapshot d LEFT JOIN deal_refusal r "
             "  ON r.deal_id = d.deal_id "
             f"WHERE d.stage_id IN ({marks}) "
+            "AND d.modified_at >= ? "
             "AND (r.reason IS NULL OR r.reason = '') "
             "AND (r.qc_task_id IS NULL OR r.qc_task_id = 0) "
             "AND (r.attempts IS NULL OR r.attempts < ?) "
             "ORDER BY d.modified_at DESC LIMIT ?",
-            (*failed, settings.qc_task_max_attempts,
+            (*failed, cutoff, settings.qc_task_max_attempts,
              settings.stuck_alert_batch)).fetchall()
     due = [dict(r) for r in rows]
     if not due:
@@ -444,9 +505,29 @@ def alert_stuck_deals() -> dict:
     и снова зависло — это новый повод; стоять на той же стадии второй месяц
     поводом для второй задачи не является.
     """
-    data = stuck_deals(limit=settings.stuck_alert_batch * 3)
-    fresh = [d for d in data["items"] if not d["alerted"]][
-        :settings.stuck_alert_batch]
+    data = stuck_deals(limit=10000)
+    fresh_all = [d for d in data["items"] if not d["alerted"]]
+
+    # Первый запуск на накопленной базе. Дела зависали годами, и задача по
+    # каждому — это не помощь, а поток, который закроют не читая. Отмечаем
+    # их как известные и молчим; накопленное разбирается по таблице в
+    # панели, а задачи пойдут по тем, кто зависнет дальше.
+    if _baseline_needed(len(fresh_all)):
+        now = _iso(_now())
+        with _conn() as c:
+            for d in fresh_all:
+                c.execute(
+                    "INSERT OR REPLACE INTO deal_stuck_alert "
+                    "(deal_id, stage_id, days_on_stage, task_id, alerted_at) "
+                    "VALUES (?, ?, ?, 0, ?)",
+                    (d["deal_id"], d["stage_id"], d["days_on_stage"], now))
+        log.warning("Первый прогон: %d зависших дел отмечены без задач. "
+                    "Разбирать их следует по таблице в админ-панели.",
+                    len(fresh_all))
+        return {"created": 0, "failed": 0, "due": 0, "baseline": len(fresh_all),
+                "stuck_total": data["total"]}
+
+    fresh = fresh_all[:settings.stuck_alert_batch]
     if not fresh:
         return {"created": 0, "failed": 0, "due": 0, "stuck_total": data["total"]}
 

@@ -107,6 +107,34 @@ def _contact_assignee(contact_id: int) -> int:
     return int((res or {}).get("ASSIGNED_BY_ID") or 0)
 
 
+def user_info(user_id: int) -> dict:
+    """Карточка сотрудника: имя, должность, уволен или нет, тип учётной записи.
+
+    Нужна, чтобы отсеять из таблицы менеджеров тех, кто менеджером не
+    является: уволенных, роботов и интеграционные учётки.
+    """
+    if not user_id:
+        return {}
+    res = call("user.get", {"ID": user_id})
+    rows = res if isinstance(res, list) else [res]
+    if not rows or not rows[0]:
+        return {}
+    u = rows[0]
+    full = " ".join(x for x in (u.get("NAME"), u.get("LAST_NAME")) if x).strip()
+    active = u.get("ACTIVE")
+    departments = u.get("UF_DEPARTMENT") or []
+    if not isinstance(departments, list):
+        departments = [departments]
+    return {
+        "name": full or u.get("EMAIL") or f"ID {user_id}",
+        "position": (u.get("WORK_POSITION") or "").strip(),
+        # Битрикс отдаёт то булево, то строку «Y»/«N» — приводим сами.
+        "active": active if isinstance(active, bool) else str(active).upper() != "N",
+        "user_type": (u.get("USER_TYPE") or "employee").lower(),
+        "departments": ",".join(str(d) for d in departments if d),
+    }
+
+
 def user_name(user_id: int) -> str:
     """Имя сотрудника для отчётов. Пустая строка, если пользователь скрыт
     или удалён — падать из-за подписи не станем."""

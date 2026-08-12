@@ -42,9 +42,12 @@ def funnel(monkeypatch, bitrix):
                         lambda cat, modified_since="", limit=2000: DEALS)
     monkeypatch.setattr(real, "stage_history",
                         lambda cat, since="", limit=20000: EXTRA_HISTORY)
-    monkeypatch.setattr(real, "user_name",
-                        lambda uid: {101: "Анна Смирнова",
-                                     102: "Борис Козлов"}.get(uid, ""))
+    monkeypatch.setattr(real, "user_info", lambda uid: {
+        101: dict(name="Анна Смирнова", position="Менеджер сопровождения",
+                  active=True, user_type="employee", departments="7"),
+        102: dict(name="Борис Козлов", position="Менеджер сопровождения",
+                  active=True, user_type="employee", departments="7"),
+    }.get(uid, {}))
     stages.sync(force=True)
     return bitrix
 
@@ -115,7 +118,11 @@ class TestПричины:
         row = [r for r in supervision.refusals()["items"] if r["deal_id"] == 4][0]
         assert 118 <= row["days_lived"] <= 122     # 150 - 30
 
-    def test_задача_на_выяснение_причины(self, funnel):
+    def test_задача_на_выяснение_причины(self, funnel, monkeypatch):
+        # Отказы в наборе сорока- и тридцатидневной давности, а по умолчанию
+        # спрашиваем только про свежие. Здесь проверяется сама постановка
+        # задачи, поэтому окно расширено; отсечка — в TestЗащитаОтЗалпа.
+        monkeypatch.setattr(settings, "refusal_reason_max_age_days", 365)
         r = supervision.ask_refusal_reasons()
         assert r["created"] == 2
         assert all(t["to"] == settings.bitrix_qc_head_id for t in funnel.tasks)
@@ -174,6 +181,180 @@ class TestЗависшиеДела:
         supervision.alert_stuck_deals()
         stuck = supervision.stuck_deals()["items"]
         assert any(d["alerted"] for d in stuck)
+
+
+class TestЗащитаОтЗалпа:
+    """На реальной воронке скопилось около тысячи отказов за все годы
+    и сотни давно стоящих дел. Без этих ограничителей первый же запуск
+    похоронил бы оба отдела в задачах."""
+
+    def test_по_старому_отказу_причину_не_спрашиваем(self, funnel, monkeypatch):
+        monkeypatch.setattr(settings, "refusal_reason_max_age_days", 30)
+        # Дело 6 отказано 40 дней назад, дело 4 — 30 дней назад.
+        due = supervision.ask_refusal_reasons()
+        assert due["created"] <= 1, (
+            "по отказу сорокадневной давности спрашивать причину поздно")
+
+    def test_свежий_отказ_разбирается(self, funnel, monkeypatch):
+        monkeypatch.setattr(settings, "refusal_reason_max_age_days", 365)
+        assert supervision.ask_refusal_reasons()["created"] == 2
+
+    def test_старые_отказы_всё_равно_видны_в_таблице(self, funnel, monkeypatch):
+        monkeypatch.setattr(settings, "refusal_reason_max_age_days", 1)
+        supervision.ask_refusal_reasons()
+        assert supervision.refusals()["total"] == 2, (
+            "отсечка касается задач, а не показа отказов")
+
+    def test_накопленные_зависшие_отмечаются_без_задач(self, funnel, monkeypatch):
+        monkeypatch.setattr(settings, "stuck_baseline_threshold", 0)
+        r = supervision.alert_stuck_deals()
+        assert r.get("baseline"), r
+        assert r["created"] == 0
+        assert not funnel.tasks, "на первом прогоне задач быть не должно"
+
+    def test_после_отметки_новые_зависания_дают_задачи(self, funnel, monkeypatch):
+        monkeypatch.setattr(settings, "stuck_baseline_threshold", 0)
+        supervision.alert_stuck_deals()          # базовая отметка
+        funnel.tasks.clear()
+        # Появилось новое зависшее дело.
+        import sqlite3
+        with sqlite3.connect(str(funnel and settings.db_path)) as c:
+            c.execute("INSERT INTO deal_snapshot (deal_id, stage_id, "
+                      "assigned_by_id, created_at, modified_at, synced_at) "
+                      "VALUES (999, 'C15:UC_3T0KG4', 101, ?, ?, ?)",
+                      (ago(300), ago(1), ago(0)))
+            c.execute("INSERT INTO deal_stage_history (deal_id, stage_id, "
+                      "entered_at) VALUES (999, 'C15:UC_3T0KG4', ?)", (ago(300),))
+        r = supervision.alert_stuck_deals()
+        assert r["created"] == 1, "новое зависание должно давать задачу"
+
+    def test_отметка_срабатывает_только_один_раз(self, funnel, monkeypatch):
+        monkeypatch.setattr(settings, "stuck_baseline_threshold", 0)
+        supervision.alert_stuck_deals()
+        second = supervision.alert_stuck_deals()
+        assert not second.get("baseline"), (
+            "журнал уже не пуст — повторная отметка не нужна")
+
+    def test_малое_число_зависших_отмечается_без_базового_прогона(
+            self, funnel, monkeypatch):
+        monkeypatch.setattr(settings, "stuck_baseline_threshold", 100)
+        r = supervision.alert_stuck_deals()
+        assert not r.get("baseline")
+        assert r["created"] >= 1, (
+            "если зависших мало, задачи ставятся сразу, без отметки")
+
+
+class TestВсеСтадииВидны:
+    def test_служебных_стадий_по_умолчанию_нет(self):
+        """Скрытая стадия ломает сверку: сумма по колонке «Сейчас»
+        перестаёт сходиться с общим числом сделок в Битриксе."""
+        assert settings.service_stages == set()
+
+    def test_клиенты_от_гараджи_показываются(self, funnel):
+        ids = [s["stage_id"] for s in stages.funnel()["stages"]]
+        assert "C15:UC_HN6K2D" in ids
+        assert "C15:NEW" in ids
+
+    def test_сумма_по_стадиям_равна_числу_сделок(self, funnel):
+        f = stages.funnel()
+        assert sum(s["current"] for s in f["stages"]) == len(DEALS)
+
+
+class TestКтоПопадаетВТаблицу:
+    """В воронке фигурируют уволенные, роботы и сотрудники не из отдела
+    сопровождения. Их доля отказов ничего не говорит о работе отдела."""
+
+    @pytest.fixture
+    def people(self, funnel, monkeypatch):
+        from app import bitrix as real
+        cards = {
+            101: dict(name="Анна Смирнова", position="Менеджер сопровождения",
+                      active=True, user_type="employee", departments="7"),
+            102: dict(name="Робот Фаворит", position="", active=True,
+                      user_type="employee", departments=""),
+            103: dict(name="Пётр Уволенный", position="Менеджер",
+                      active=False, user_type="employee", departments="7"),
+            104: dict(name="Интеграция amoCRM", position="", active=True,
+                      user_type="bot", departments=""),
+            105: dict(name="Иван Ижко", position="Директор", active=True,
+                      user_type="employee", departments="1"),
+        }
+        monkeypatch.setattr(real, "user_info", lambda uid: cards.get(uid, {}))
+        # Раздаём сделки этим людям и обновляем карточки.
+        import sqlite3
+        with sqlite3.connect(str(settings.db_path)) as c:
+            for i, uid in enumerate([103, 104, 105], start=90):
+                c.execute("INSERT INTO deal_snapshot (deal_id, stage_id, "
+                          "assigned_by_id, created_at, modified_at, synced_at) "
+                          "VALUES (?, 'C15:LOSE', ?, ?, ?, ?)",
+                          (i, uid, ago(100), ago(5), ago(0)))
+            # Карточки уже заполнены фикстурой funnel и потому свежие.
+            # Помечаем устаревшими, чтобы подтянулись эти, а не те.
+            c.execute("UPDATE bitrix_user SET updated_at = ?", (ago(3),))
+        stages._sync_user_names()
+        return cards
+
+    def test_уволенный_скрыт(self, people):
+        shown = {m["manager_id"] for m in supervision.manager_stats()["managers"]}
+        assert 103 not in shown
+
+    def test_робот_как_учётка_скрыт(self, people):
+        shown = {m["manager_id"] for m in supervision.manager_stats()["managers"]}
+        assert 104 not in shown, "интеграционная учётка не менеджер"
+
+    def test_фильтр_по_должности(self, people, monkeypatch):
+        monkeypatch.setattr(settings, "manager_position_contains", "менеджер")
+        shown = {m["manager_id"] for m in supervision.manager_stats()["managers"]}
+        assert 101 in shown
+        assert 105 not in shown, "директор не менеджер"
+        assert 102 not in shown, "у робота должности нет"
+
+    def test_исключение_по_списку(self, people, monkeypatch):
+        monkeypatch.setattr(settings, "manager_exclude_ids", "102")
+        shown = {m["manager_id"] for m in supervision.manager_stats()["managers"]}
+        assert 102 not in shown
+
+    def test_фильтр_по_отделу(self, people, monkeypatch):
+        monkeypatch.setattr(settings, "manager_department_ids", "7")
+        shown = {m["manager_id"] for m in supervision.manager_stats()["managers"]}
+        assert 101 in shown and 105 not in shown
+
+    def test_скрытые_названы_поимённо(self, people):
+        hidden = supervision.manager_stats()["hidden"]
+        by_name = {h["manager_name"]: h["hidden_reason"] for h in hidden}
+        assert "Пётр Уволенный" in by_name
+        assert "уволен" in by_name["Пётр Уволенный"]
+
+    def test_скрытые_посчитаны_отдельно(self, people):
+        st = supervision.manager_stats()
+        assert st["hidden_totals"]["people"] >= 2
+        assert st["hidden_totals"]["deals"] >= 2, (
+            "их дела должны быть видны сводкой, иначе суммы не сойдутся")
+
+    def test_неопределённый_менеджер_остаётся(self, people):
+        """Это дырка в данных, а не человек — прятать её нельзя."""
+        assert supervision.is_manager(0, {})[0] is True
+
+    def test_должность_показана_в_таблице(self, people):
+        rows = {m["manager_id"]: m for m in supervision.manager_stats()["managers"]}
+        assert rows[101]["position"] == "Менеджер сопровождения"
+
+    def test_карточки_обновляются_а_не_кэшируются_навсегда(self, people, monkeypatch):
+        """Уволенный, оставшийся в кэше действующим, — худший вид ошибки:
+        цифры выглядят правдоподобно и потому не проверяются."""
+        assert 103 not in {m["manager_id"]
+                           for m in supervision.manager_stats()["managers"]}
+        from app import bitrix as real
+        monkeypatch.setattr(real, "user_info", lambda uid: dict(
+            name="Пётр Вернулся", position="Менеджер", active=True,
+            user_type="employee", departments="7") if uid == 103 else {})
+        import sqlite3
+        with sqlite3.connect(str(settings.db_path)) as c:
+            c.execute("UPDATE bitrix_user SET updated_at = ? WHERE user_id = 103",
+                      (ago(3),))
+        stages._sync_user_names()
+        assert 103 in {m["manager_id"]
+                       for m in supervision.manager_stats()["managers"]}
 
 
 class TestЧерезAPI:

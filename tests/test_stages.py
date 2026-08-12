@@ -93,8 +93,10 @@ def funnel_data(monkeypatch):
 @pytest.mark.parametrize("stage_id,kind", [
     ("C15:UC_UJI8T9", "done"),
     ("C15:WON", "done"),            # после списания дело уже не «в работе»
-    ("C15:NEW", "service"),
-    ("C15:UC_HN6K2D", "service"),   # признак источника, не этап
+    # Служебных стадий по умолчанию нет: скрытая стадия ломает сверку с
+    # Битриксом. Список задаётся в настройках, если что-то окажется шумом.
+    ("C15:NEW", "work"),
+    ("C15:UC_HN6K2D", "work"),
     ("C15:UC_ZTR9AW", "stuck"),
     ("C15:PREPARATION", "stuck"),
     ("C15:UC_7ICUJ1", "stuck"),
@@ -155,9 +157,17 @@ class TestСреднийСрокДела:
 
 
 class TestВоронка:
-    def test_служебные_стадии_скрыты(self, funnel_data):
+    def test_показываются_все_стадии_воронки(self, funnel_data):
+        """Сумма по колонке «Сейчас» должна сходиться с числом сделок
+        в Битриксе, иначе человек решит, что интеграция считает неверно."""
         ids = [s["stage_id"] for s in stages.funnel()["stages"]]
-        assert "C15:NEW" not in ids and "C15:UC_HN6K2D" not in ids
+        assert len(ids) == len(STAGE_LIST)
+        assert "C15:UC_HN6K2D" in ids
+
+    def test_скрыть_стадию_можно_настройкой(self, funnel_data, monkeypatch):
+        monkeypatch.setattr(settings, "stage_service_ids", "C15:NEW")
+        ids = [s["stage_id"] for s in stages.funnel()["stages"]]
+        assert "C15:NEW" not in ids
 
     def test_порядок_как_в_битриксе(self, funnel_data):
         rows = stages.funnel()["stages"]

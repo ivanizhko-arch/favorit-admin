@@ -303,10 +303,11 @@
     <div class="section-title" id="s-refusals">📉 Отказы по менеджерам</div>
     <div id="sv-warn"></div>
     <table>
-      <thead><tr><th>Менеджер</th><th>Дел всего</th><th>В работе</th><th>Отказов</th><th>Доля отказов</th><th>Из-за менеджера</th><th>Причина не выяснена</th></tr></thead>
+      <thead><tr><th>Менеджер</th><th>Должность</th><th>Дел всего</th><th>В работе</th><th>Отказов</th><th>Доля отказов</th><th>Из-за менеджера</th><th>Причина не выяснена</th></tr></thead>
       <tbody id="sv-rows"></tbody>
     </table>
-    <p class="muted" id="sv-note" style="margin-top:10px"></p>
+    <p class="muted" id="sv-hidden" style="margin-top:10px"></p>
+    <p class="muted" id="sv-note" style="margin-top:8px"></p>
 
     <div class="filters" style="margin-top:18px">
       <select id="rf-manager" onchange="resetPage('rf');loadRefusals()">
@@ -926,10 +927,11 @@
 
     const t = document.getElementById('sv-rows');
     if(!m.managers.length){
-      t.innerHTML = '<tr><td colspan="7" class="empty">Сделок в снимке нет. Обновите данные из Битрикса на вкладке «Дашборд».</td></tr>';
+      t.innerHTML = '<tr><td colspan="8" class="empty">Сделок в снимке нет. Обновите данные из Битрикса на вкладке «Дашборд».</td></tr>';
     } else {
       t.innerHTML = m.managers.map(x => `<tr>
         <td>${esc(x.manager_name)}</td>
+        <td class="muted">${esc(x.position || '—')}</td>
         <td>${esc(x.deals)}</td>
         <td class="muted">${esc(x.in_progress)}</td>
         <td>${x.refusals ? `<span class="badge b-low">${esc(x.refusals)}</span>` : '<span class="muted">—</span>'}</td>
@@ -938,6 +940,16 @@
         <td class="muted">${x.reason_unknown || '—'}</td>
       </tr>`).join('');
     }
+
+    // Скрытых называем поимённо: молча пропавшие строки выглядят как
+    // потеря данных, и первый же вопрос будет «а где Робот Фаворит».
+    const h = m.hidden_totals || {people:0};
+    document.getElementById('sv-hidden').innerHTML = h.people
+      ? `Скрыто из таблицы: <b>${esc(h.people)}</b> — ${esc(h.deals)} дел, ${esc(h.refusals)} отказов. ` +
+        (m.hidden || []).map(x =>
+          `${esc(x.manager_name)} <span class="muted">(${esc(x.hidden_reason)})</span>`
+        ).join(', ') + '.'
+      : '';
 
     const tot = m.totals;
     document.getElementById('sv-note').innerHTML =

@@ -129,6 +129,17 @@ def init() -> None:
                 updated_at TEXT NOT NULL
             )
         """)
+        # Должность, увольнение и тип учётки — по ним отсеиваются те, кто
+        # менеджером не является. Таблица уже существует на сервере,
+        # поэтому колонки добавляются отдельно.
+        for column, default in (("position", "''"), ("active", "1"),
+                                ("user_type", "'employee'"),
+                                ("departments", "''")):
+            try:
+                c.execute(f"ALTER TABLE bitrix_user ADD COLUMN {column} "
+                          f"DEFAULT {default}")
+            except sqlite3.OperationalError:
+                pass  # колонка уже есть
 
 
 def _state(key: str) -> str:
@@ -252,33 +263,42 @@ def sync(force: bool = False) -> dict:
 
 
 def _sync_user_names() -> int:
-    """Дотянуть имена ответственных, которых ещё не знаем.
+    """Обновить карточки ответственных: имя, должность, увольнение.
 
-    Спрашиваем только новых: имена меняются редко, а каждый запрос — поход
-    в Битрикс. Неудача не критична — в интерфейсе покажется «ID 101».
+    Новых спрашиваем всегда, известных — раз в сутки. Увольнения и смена
+    должности случаются, и кэш, который никогда не обновляется, однажды
+    покажет уволенного как действующего менеджера.
     """
+    stale = _iso(_now() - timedelta(days=1))
     with _conn() as c:
         rows = c.execute(
-            "SELECT DISTINCT d.assigned_by_id FROM deal_snapshot d "
+            "SELECT DISTINCT d.assigned_by_id uid FROM deal_snapshot d "
             "LEFT JOIN bitrix_user u ON u.user_id = d.assigned_by_id "
-            "WHERE d.assigned_by_id != 0 AND u.user_id IS NULL").fetchall()
+            "WHERE d.assigned_by_id != 0 "
+            "AND (u.user_id IS NULL OR u.updated_at < ?)", (stale,)).fetchall()
     added = 0
     for r in rows:
-        uid = int(r["assigned_by_id"])
+        uid = int(r["uid"])
         try:
-            name = bitrix.user_name(uid)
+            info = bitrix.user_info(uid)
         except Exception as e:
-            # Имя — украшение таблицы. Что бы ни случилось при его получении,
-            # синхронизация сделок из-за этого падать не должна.
-            log.warning("Имя сотрудника %s не получено: %s", uid, e)
+            # Карточка сотрудника — украшение таблицы. Что бы ни случилось
+            # при её получении, синхронизация сделок падать не должна.
+            log.warning("Карточка сотрудника %s не получена: %s", uid, e)
             continue
-        if not name:
+        if not info:
             continue
         with _conn() as c:
-            c.execute("INSERT INTO bitrix_user (user_id, name, updated_at) "
-                      "VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET "
-                      "name = excluded.name, updated_at = excluded.updated_at",
-                      (uid, name, _iso(_now())))
+            c.execute(
+                "INSERT INTO bitrix_user (user_id, name, position, active, "
+                " user_type, departments, updated_at) VALUES (?,?,?,?,?,?,?) "
+                "ON CONFLICT(user_id) DO UPDATE SET name = excluded.name, "
+                " position = excluded.position, active = excluded.active, "
+                " user_type = excluded.user_type, "
+                " departments = excluded.departments, "
+                " updated_at = excluded.updated_at",
+                (uid, info["name"], info["position"], 1 if info["active"] else 0,
+                 info["user_type"], info["departments"], _iso(_now())))
         added += 1
     return added
 
@@ -288,6 +308,21 @@ def user_names() -> dict:
     with _conn() as c:
         return {int(r["user_id"]): r["name"]
                 for r in c.execute("SELECT user_id, name FROM bitrix_user")}
+
+
+def users() -> dict:
+    """Полные карточки: {id: {name, position, active, user_type, departments}}."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT user_id, name, position, active, user_type, departments "
+            "FROM bitrix_user").fetchall()
+    return {int(r["user_id"]): {
+        "name": r["name"],
+        "position": r["position"] or "",
+        "active": bool(r["active"]),
+        "user_type": r["user_type"] or "employee",
+        "departments": r["departments"] or "",
+    } for r in rows}
 
 
 def stage_names() -> dict:
