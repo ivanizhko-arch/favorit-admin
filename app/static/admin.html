@@ -302,11 +302,40 @@
     <!-- ОТДЕЛ СОПРОВОЖДЕНИЯ: ОТКАЗЫ -->
     <div class="section-title" id="s-refusals">📉 Отказы по менеджерам</div>
     <div id="sv-warn"></div>
+    <div class="filters">
+      <input class="grow" id="sv-q" placeholder="Поиск: фамилия или должность" oninput="renderManagers()">
+      <select id="sv-position" onchange="renderManagers()">
+        <option value="">Все должности</option>
+      </select>
+      <select id="sv-status" onchange="renderManagers()">
+        <option value="">Все, включая уволенных</option>
+        <option value="active">Только действующие</option>
+        <option value="inactive">Только уволенные</option>
+      </select>
+      <select id="sv-type" onchange="renderManagers()">
+        <option value="">Люди и учётки</option>
+        <option value="employee">Только сотрудники</option>
+        <option value="other">Только роботы и внешние</option>
+      </select>
+      <select id="sv-minrate" onchange="renderManagers()">
+        <option value="0">Любая доля отказов</option>
+        <option value="20">Доля от 20%</option>
+        <option value="30">Доля от 30%</option>
+        <option value="50">Доля от 50%</option>
+      </select>
+      <select id="sv-mindeals" onchange="renderManagers()">
+        <option value="0">Любое число дел</option>
+        <option value="10">От 10 дел</option>
+        <option value="50">От 50 дел</option>
+        <option value="100">От 100 дел</option>
+      </select>
+      <button class="btn-ghost" onclick="resetManagerFilters()">Сбросить</button>
+    </div>
     <table>
       <thead><tr><th>Менеджер</th><th>Должность</th><th>Дел всего</th><th>В работе</th><th>Отказов</th><th>Доля отказов</th><th>Из-за менеджера</th><th>Причина не выяснена</th></tr></thead>
       <tbody id="sv-rows"></tbody>
     </table>
-    <p class="muted" id="sv-hidden" style="margin-top:10px"></p>
+    <p class="muted" id="sv-shown" style="margin-top:10px"></p>
     <p class="muted" id="sv-note" style="margin-top:8px"></p>
 
     <div class="filters" style="margin-top:18px">
@@ -912,10 +941,82 @@
     return rate >= 40 ? 'var(--danger)' : rate >= 20 ? 'var(--gold)' : 'var(--ok)';
   }
 
+  // Все, кто встречается в сделках, показываются всегда. Кого исключить из
+  // рассмотрения — решает тот, кто смотрит: у одного вопрос про отдел
+  // сопровождения, у другого — почему на роботе висят дела. Отбор делается
+  // фильтрами прямо в таблице, мгновенно, без перезагрузки.
+  let svManagers = [];
+
+  function renderManagers(){
+    const q = document.getElementById('sv-q').value.trim().toLowerCase();
+    const pos = document.getElementById('sv-position').value;
+    const status = document.getElementById('sv-status').value;
+    const type = document.getElementById('sv-type').value;
+    const minRate = parseFloat(document.getElementById('sv-minrate').value) || 0;
+    const minDeals = parseInt(document.getElementById('sv-mindeals').value, 10) || 0;
+
+    const rows = svManagers.filter(x => {
+      if(q && !(x.manager_name + ' ' + (x.position||'')).toLowerCase().includes(q)) return false;
+      if(pos === '__none__' && x.position) return false;
+      if(pos && pos !== '__none__' && x.position !== pos) return false;
+      if(status === 'active' && !x.active) return false;
+      if(status === 'inactive' && x.active) return false;
+      if(type === 'employee' && !x.is_employee) return false;
+      if(type === 'other' && x.is_employee) return false;
+      if(x.refusal_rate < minRate) return false;
+      if(x.deals < minDeals) return false;
+      return true;
+    });
+
+    const t = document.getElementById('sv-rows');
+    if(!svManagers.length){
+      t.innerHTML = '<tr><td colspan="8" class="empty">Сделок в снимке нет. Обновите данные из Битрикса на вкладке «Дашборд».</td></tr>';
+    } else if(!rows.length){
+      t.innerHTML = '<tr><td colspan="8" class="empty">Под фильтры никто не подходит.</td></tr>';
+    } else {
+      t.innerHTML = rows.map(x => {
+        // Уволенных и роботов не прячем, а помечаем: видно, кто это,
+        // и цифры по ним при этом остаются на виду.
+        const marks =
+          (!x.active ? ' <span class="badge b-mute" title="сотрудник уволен">уволен</span>' : '') +
+          (!x.is_employee ? ' <span class="badge b-neutral" title="робот или внешняя учётка">не сотрудник</span>' : '');
+        return `<tr>
+          <td>${esc(x.manager_name)}${marks}</td>
+          <td class="muted">${esc(x.position || '—')}</td>
+          <td>${esc(x.deals)}</td>
+          <td class="muted">${esc(x.in_progress)}</td>
+          <td>${x.refusals ? `<span class="badge b-low">${esc(x.refusals)}</span>` : '<span class="muted">—</span>'}</td>
+          <td><b style="color:${rateClass(x.refusal_rate)}">${esc(x.refusal_rate)}%</b></td>
+          <td>${x.manager_fault ? `<span class="badge b-low">${esc(x.manager_fault)}</span>` : '<span class="muted">—</span>'}</td>
+          <td class="muted">${x.reason_unknown || '—'}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    // Итоги считаются по отфильтрованному: иначе после отбора менеджеров
+    // сопровождения внизу висела бы сумма по всей компании.
+    const deals = rows.reduce((s,x) => s + x.deals, 0);
+    const refusals = rows.reduce((s,x) => s + x.refusals, 0);
+    const rate = deals ? Math.round(refusals * 1000 / deals) / 10 : 0;
+    document.getElementById('sv-shown').innerHTML = svManagers.length
+      ? `Показано <b>${esc(rows.length)}</b> из ${esc(svManagers.length)}: ` +
+        `${esc(deals)} дел, ${esc(refusals)} отказов (${esc(rate)}%).`
+      : '';
+  }
+
+  function resetManagerFilters(){
+    ['sv-q','sv-position','sv-status','sv-type'].forEach(id =>
+      document.getElementById(id).value = '');
+    document.getElementById('sv-minrate').value = '0';
+    document.getElementById('sv-mindeals').value = '0';
+    renderManagers();
+  }
+
   async function loadSupervision(){
     const d = await api('/supervision');
     const m = d.managers, st = d.status;
     svReasons = m.reasons || {}; svSources = m.sources || {};
+    svManagers = m.managers || [];
 
     const problems = [];
     if(!st.bitrix_configured) problems.push('не задан <b>BITRIX_WEBHOOK_URL</b> — задачи не ставятся');
@@ -925,36 +1026,20 @@
     document.getElementById('sv-warn').innerHTML = problems.length
       ? `<div class="warn">${problems.map(p => '· '+p).join('<br>')}</div>` : '';
 
-    const t = document.getElementById('sv-rows');
-    if(!m.managers.length){
-      t.innerHTML = '<tr><td colspan="8" class="empty">Сделок в снимке нет. Обновите данные из Битрикса на вкладке «Дашборд».</td></tr>';
-    } else {
-      t.innerHTML = m.managers.map(x => `<tr>
-        <td>${esc(x.manager_name)}</td>
-        <td class="muted">${esc(x.position || '—')}</td>
-        <td>${esc(x.deals)}</td>
-        <td class="muted">${esc(x.in_progress)}</td>
-        <td>${x.refusals ? `<span class="badge b-low">${esc(x.refusals)}</span>` : '<span class="muted">—</span>'}</td>
-        <td><b style="color:${rateClass(x.refusal_rate)}">${esc(x.refusal_rate)}%</b></td>
-        <td>${x.manager_fault ? `<span class="badge b-low">${esc(x.manager_fault)}</span>` : '<span class="muted">—</span>'}</td>
-        <td class="muted">${x.reason_unknown || '—'}</td>
-      </tr>`).join('');
+    // Список должностей для фильтра — только те, что реально встречаются.
+    const psel = document.getElementById('sv-position');
+    if(psel.options.length <= 1){
+      psel.innerHTML = '<option value="">Все должности</option>' +
+        (m.positions || []).map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('') +
+        '<option value="__none__">Без должности</option>';
     }
+    renderManagers();
 
-    // Скрытых называем поимённо: молча пропавшие строки выглядят как
-    // потеря данных, и первый же вопрос будет «а где Робот Фаворит».
-    const h = m.hidden_totals || {people:0};
-    document.getElementById('sv-hidden').innerHTML = h.people
-      ? `Скрыто из таблицы: <b>${esc(h.people)}</b> — ${esc(h.deals)} дел, ${esc(h.refusals)} отказов. ` +
-        (m.hidden || []).map(x =>
-          `${esc(x.manager_name)} <span class="muted">(${esc(x.hidden_reason)})</span>`
-        ).join(', ') + '.'
-      : '';
-
-    const tot = m.totals;
     document.getElementById('sv-note').innerHTML =
-      `Всего дел ${esc(tot.deals)}, отказов ${esc(tot.refusals)} (${esc(tot.refusal_rate)}%). ` +
-      'Доля считается от всех дел менеджера, а не только от закрытых. ' +
+      'Показываются все, кто встречается в сделках, — уволенные и роботы помечены, ' +
+      'но не скрыты: их дела никуда не делись, и прятать их значит терять часть картины. ' +
+      'Отбирайте фильтрами выше. ' +
+      'Доля отказов считается от всех дел менеджера, а не только от закрытых. ' +
       'В колонке «Из-за менеджера» — только отказы с причиной «Не устроил менеджер»: ' +
       'остальные причины к его работе не относятся и на оценку влиять не должны.';
 

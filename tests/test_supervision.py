@@ -294,46 +294,24 @@ class TestКтоПопадаетВТаблицу:
         stages._sync_user_names()
         return cards
 
-    def test_уволенный_скрыт(self, people):
+    def test_показываются_все_включая_уволенных_и_роботов(self, people):
+        """Скрывать решает тот, кто смотрит, а не код. У одного вопрос про
+        отдел сопровождения, у другого — почему на роботе висят дела."""
         shown = {m["manager_id"] for m in supervision.manager_stats()["managers"]}
-        assert 103 not in shown
+        for uid in (101, 102, 103, 104, 105):
+            assert uid in shown, f"сотрудник {uid} пропал из таблицы"
 
-    def test_робот_как_учётка_скрыт(self, people):
-        shown = {m["manager_id"] for m in supervision.manager_stats()["managers"]}
-        assert 104 not in shown, "интеграционная учётка не менеджер"
+    def test_признаки_для_отбора_отдаются(self, people):
+        by = {m["manager_id"]: m for m in supervision.manager_stats()["managers"]}
+        assert by[103]["active"] is False, "уволенного нужно уметь отличить"
+        assert by[104]["is_employee"] is False, "робота нужно уметь отличить"
+        assert by[101]["active"] is True and by[101]["is_employee"] is True
 
-    def test_фильтр_по_должности(self, people, monkeypatch):
-        monkeypatch.setattr(settings, "manager_position_contains", "менеджер")
-        shown = {m["manager_id"] for m in supervision.manager_stats()["managers"]}
-        assert 101 in shown
-        assert 105 not in shown, "директор не менеджер"
-        assert 102 not in shown, "у робота должности нет"
-
-    def test_исключение_по_списку(self, people, monkeypatch):
-        monkeypatch.setattr(settings, "manager_exclude_ids", "102")
-        shown = {m["manager_id"] for m in supervision.manager_stats()["managers"]}
-        assert 102 not in shown
-
-    def test_фильтр_по_отделу(self, people, monkeypatch):
-        monkeypatch.setattr(settings, "manager_department_ids", "7")
-        shown = {m["manager_id"] for m in supervision.manager_stats()["managers"]}
-        assert 101 in shown and 105 not in shown
-
-    def test_скрытые_названы_поимённо(self, people):
-        hidden = supervision.manager_stats()["hidden"]
-        by_name = {h["manager_name"]: h["hidden_reason"] for h in hidden}
-        assert "Пётр Уволенный" in by_name
-        assert "уволен" in by_name["Пётр Уволенный"]
-
-    def test_скрытые_посчитаны_отдельно(self, people):
-        st = supervision.manager_stats()
-        assert st["hidden_totals"]["people"] >= 2
-        assert st["hidden_totals"]["deals"] >= 2, (
-            "их дела должны быть видны сводкой, иначе суммы не сойдутся")
-
-    def test_неопределённый_менеджер_остаётся(self, people):
-        """Это дырка в данных, а не человек — прятать её нельзя."""
-        assert supervision.is_manager(0, {})[0] is True
+    def test_список_должностей_для_фильтра(self, people):
+        positions = supervision.manager_stats()["positions"]
+        assert "Менеджер сопровождения" in positions
+        assert "Директор" in positions
+        assert "" not in positions, "пустая должность не пункт списка"
 
     def test_должность_показана_в_таблице(self, people):
         rows = {m["manager_id"]: m for m in supervision.manager_stats()["managers"]}
@@ -342,8 +320,9 @@ class TestКтоПопадаетВТаблицу:
     def test_карточки_обновляются_а_не_кэшируются_навсегда(self, people, monkeypatch):
         """Уволенный, оставшийся в кэше действующим, — худший вид ошибки:
         цифры выглядят правдоподобно и потому не проверяются."""
-        assert 103 not in {m["manager_id"]
-                           for m in supervision.manager_stats()["managers"]}
+        by = {m["manager_id"]: m for m in supervision.manager_stats()["managers"]}
+        assert by[103]["active"] is False
+
         from app import bitrix as real
         monkeypatch.setattr(real, "user_info", lambda uid: dict(
             name="Пётр Вернулся", position="Менеджер", active=True,
@@ -353,8 +332,10 @@ class TestКтоПопадаетВТаблицу:
             c.execute("UPDATE bitrix_user SET updated_at = ? WHERE user_id = 103",
                       (ago(3),))
         stages._sync_user_names()
-        assert 103 in {m["manager_id"]
-                       for m in supervision.manager_stats()["managers"]}
+
+        by = {m["manager_id"]: m for m in supervision.manager_stats()["managers"]}
+        assert by[103]["active"] is True
+        assert by[103]["manager_name"] == "Пётр Вернулся"
 
 
 class TestЧерезAPI:
