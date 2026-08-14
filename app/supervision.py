@@ -108,34 +108,6 @@ def _failed_placeholders() -> tuple:
     return failed, ",".join("?" * len(failed)) if failed else "''"
 
 
-def is_manager(user_id: int, card: dict) -> tuple[bool, str]:
-    """Показывать ли этого человека в таблице менеджеров.
-
-    Возвращает (показывать, причина скрытия). Причину сохраняем, чтобы
-    в панели можно было написать, кого и почему убрали: молча пропавшие
-    строки выглядят как потеря данных.
-    """
-    if not user_id:
-        return True, ""          # «Не определён» — дырка в данных, оставляем
-    if user_id in settings.manager_excluded:
-        return False, "исключён вручную"
-    if settings.manager_hide_inactive and not card.get("active", True):
-        return False, "уволен"
-    if (settings.manager_hide_non_employees
-            and card.get("user_type", "employee") != "employee"):
-        return False, "не сотрудник: робот или внешняя учётка"
-    needle = settings.manager_position_contains.strip().lower()
-    if needle and needle not in (card.get("position") or "").lower():
-        return False, "должность не подходит под фильтр"
-    departments = settings.manager_departments
-    if departments:
-        own = {d.strip() for d in (card.get("departments") or "").split(",")
-               if d.strip()}
-        if not (own & departments):
-            return False, "другой отдел"
-    return True, ""
-
-
 def manager_stats() -> dict:
     """Таблица менеджеров: дела, отказы, доля отказов.
 
@@ -196,30 +168,31 @@ def manager_stats() -> dict:
         if mid in by_manager:
             by_manager[mid]["reason_unknown"] = int(u["n"])
 
-    items, hidden = [], []
+    # Показываем всех, кто встречается в сделках. Решать, кого исключить из
+    # рассмотрения, — дело того, кто смотрит: у одного вопрос про отдел
+    # сопровождения, у другого — почему на роботе висят дела. Код, который
+    # решает это за пользователя, в первом же случае прячет нужное.
+    items = []
     for m in by_manager.values():
         m["refusal_rate"] = (round(m["refusals"] * 100 / m["deals"], 1)
                              if m["deals"] else 0.0)
         card = cards.get(m["manager_id"], {})
         m["position"] = card.get("position", "")
-        show, why = is_manager(m["manager_id"], card)
-        (items if show else hidden).append({**m, "hidden_reason": why})
+        m["active"] = card.get("active", True)
+        m["user_type"] = card.get("user_type", "employee")
+        m["is_employee"] = m["user_type"] == "employee"
+        items.append(m)
     # Сначала те, у кого доля отказов выше — ради них таблица и нужна.
     items.sort(key=lambda m: (-m["refusal_rate"], -m["refusals"],
                               m["manager_name"]))
 
     totals_deals = sum(m["deals"] for m in items)
     totals_ref = sum(m["refusals"] for m in items)
+    # Должности, реально встречающиеся в данных, — для выпадающего фильтра.
+    positions = sorted({m["position"] for m in items if m["position"]})
     return {
         "managers": items,
-        # Скрытых показываем сводкой: иначе сумма по таблице не сойдётся
-        # с числом сделок в Битриксе, и это выглядит как потеря данных.
-        "hidden": sorted(hidden, key=lambda m: -m["deals"]),
-        "hidden_totals": {
-            "people": len(hidden),
-            "deals": sum(m["deals"] for m in hidden),
-            "refusals": sum(m["refusals"] for m in hidden),
-        },
+        "positions": positions,
         "totals": {
             "deals": totals_deals,
             "refusals": totals_ref,

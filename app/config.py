@@ -240,32 +240,6 @@ class Settings(BaseSettings):
     # а накопленное разбирается по таблице в панели.
     stuck_baseline_threshold: int = 30
 
-    # ---- Кого показывать в таблице менеджеров ----
-    # Уволенные. По умолчанию скрыты: их доля отказов ничего не говорит
-    # о работе отдела сегодня.
-    manager_hide_inactive: bool = True
-    # Роботы, интеграции и внешние учётки. В Битриксе у них тип не «employee».
-    manager_hide_non_employees: bool = True
-    # Подстрока в должности, без учёта регистра. Например «менеджер» оставит
-    # только менеджеров. Пусто → должность не проверяется.
-    # Посмотреть, как должности записаны у вас, можно в самой таблице —
-    # там есть колонка «Должность».
-    manager_position_contains: str = ""
-    # ID отделов через запятую, если фильтровать удобнее по ним.
-    manager_department_ids: str = ""
-    # Явные исключения по ID — для учёток вроде «Робот Фаворит», которые
-    # заведены обычными сотрудниками и по типу не отсеиваются.
-    manager_exclude_ids: str = ""
-
-    @property
-    def manager_departments(self) -> set:
-        return self._stage_set(self.manager_department_ids)
-
-    @property
-    def manager_excluded(self) -> set:
-        return {int(x) for x in self._stage_set(self.manager_exclude_ids)
-                if x.isdigit()}
-
     # ---- Жалобы клиентов ----
     # Общий секрет для служебного эндпоинта, через который основной backend
     # передаёт жалобу. Пусто → эндпоинт закрыт (503), а не открыт всем:
