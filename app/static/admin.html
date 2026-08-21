@@ -1459,7 +1459,7 @@
         ? 'box-shadow:inset 3px 0 0 var(--danger)'
         : (c.last_from === 'lawyer' ? 'box-shadow:inset 3px 0 0 var(--ok)' : '');
       return `
-        <tr style="cursor:pointer;${rowShadow}" onclick="openChatModal('${chEsc(c.email)}', ${JSON.stringify(clientLabel)})">
+        <tr class="chat-row" data-email="${chEsc(c.email)}" data-name="${chEsc(clientLabel)}" style="cursor:pointer;${rowShadow}">
           <td>
             <div style="font-weight:700;color:#e8ebf1">${chEsc(clientLabel)}</div>
             <div class="muted mono" style="margin-top:2px">${chEsc(c.email)}</div>
@@ -1477,6 +1477,13 @@
         </tr>
       `;
     }).join('');
+    // Клик — открыть модалку. Через addEventListener + data-атрибуты
+    // (не inline onclick), чтобы не ломаться на кавычках в JSON-имени.
+    for (const row of tb.querySelectorAll('.chat-row')) {
+      row.addEventListener('click', () => {
+        openChatModal(row.dataset.email, row.dataset.name);
+      });
+    }
   }
 
   async function openChatModal(email, name){
