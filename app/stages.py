@@ -132,12 +132,19 @@ def init() -> None:
         # Должность, увольнение и тип учётки — по ним отсеиваются те, кто
         # менеджером не является. Таблица уже существует на сервере,
         # поэтому колонки добавляются отдельно.
-        for column, default in (("position", "''"), ("active", "1"),
-                                ("user_type", "'employee'"),
-                                ("departments", "''")):
+        # Тип колонки обязателен: SQLite позволяет ADD COLUMN без типа,
+        # PostgreSQL — нет (syntax error at or near "DEFAULT").
+        for column, coltype, default in (
+            ("position", "TEXT", "''"),
+            ("active", "INTEGER", "1"),
+            ("user_type", "TEXT", "'employee'"),
+            ("departments", "TEXT", "''"),
+        ):
             try:
-                c.execute(f"ALTER TABLE bitrix_user ADD COLUMN {column} "
-                          f"DEFAULT {default}")
+                c.execute(
+                    f"ALTER TABLE bitrix_user ADD COLUMN {column} "
+                    f"{coltype} DEFAULT {default}"
+                )
             except sqlite3.OperationalError:
                 pass  # колонка уже есть
 
