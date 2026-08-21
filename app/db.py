@@ -80,12 +80,21 @@ def init() -> None:
                 phone TEXT PRIMARY KEY, label TEXT, at TEXT
             )
         """)
+        # call_events. Колонка называется caller_email (не user), потому
+        # что `user` — зарезервированное слово в PostgreSQL и при работе
+        # через pgshim падает с syntax error. Здесь схема совпадает с
+        # аналогичной таблицей в основном backend (favorit-app).
         c.execute("""
             CREATE TABLE IF NOT EXISTS call_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user TEXT, from_phone TEXT, kind TEXT, at TEXT  -- kind: call | message
+                caller_email TEXT, from_phone TEXT, kind TEXT, at TEXT
             )
         """)
+        # Миграция для старых установок где колонка называлась `user`.
+        try:
+            c.execute('ALTER TABLE call_events RENAME COLUMN "user" TO caller_email')
+        except (sqlite3.OperationalError, Exception):
+            pass  # уже переименовано или колонки нет
         # Загруженные файлы документов (клиент → приложение).
         c.execute("""
             CREATE TABLE IF NOT EXISTS document_uploads (
@@ -538,8 +547,10 @@ def delete_whitelist(phone: str) -> None:
 
 
 def log_call(user: str, from_phone: str, kind: str, at_iso: Optional[str] = None) -> None:
+    # user → caller_email в схеме (см. миграцию в init()).
     with _conn() as c:
-        c.execute("INSERT INTO call_events (user, from_phone, kind, at) VALUES (?, ?, ?, ?)",
+        c.execute("INSERT INTO call_events (caller_email, from_phone, kind, at) "
+                  "VALUES (?, ?, ?, ?)",
                   (user, norm_phone(from_phone), kind, at_iso or _now_iso()))
 
 
@@ -547,7 +558,8 @@ def get_call_events(user: str, from_phone: str) -> list:
     p = norm_phone(from_phone)
     with _conn() as c:
         rows = c.execute(
-            "SELECT kind, at FROM call_events WHERE user = ? AND from_phone = ? ORDER BY at",
+            "SELECT kind, at FROM call_events "
+            "WHERE caller_email = ? AND from_phone = ? ORDER BY at",
             (user, p)).fetchall()
         return [dict(r) for r in rows]
 
