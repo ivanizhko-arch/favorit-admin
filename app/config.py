@@ -75,8 +75,13 @@ class Settings(BaseSettings):
     s3_endpoint: str = ""
     s3_bucket: str = ""
 
-    # База данных пользователей приложения (dev — SQLite; прод — PostgreSQL)
+    # База данных пользователей приложения.
+    # dev — SQLite (db_path), прод — PostgreSQL (pg_dsn, use_postgres=True).
+    # Основной backend (favorit-app) должен использовать те же настройки,
+    # иначе admin и backend будут смотреть в разные БД.
     db_path: str = "favorit.db"
+    pg_dsn: str = ""
+    use_postgres: bool = False
 
     # Админ-панель
     admin_password: str = "admin123"  # сменить в проде!

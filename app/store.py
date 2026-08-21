@@ -19,9 +19,17 @@
 править в четырёх местах — что и было причиной, по которой их не было нигде.
 """
 import logging
-import sqlite3
 
 from .config import settings
+
+# Динамический выбор БД: SQLite (dev) или PostgreSQL через pgshim (прод).
+# Тот же паттерн что в основном backend (favorit-app/backend/app/db.py).
+# Весь остальной код admin (sqlite-совместимый SQL) работает через
+# один и тот же интерфейс `sqlite3` — не требует переписывания.
+if settings.use_postgres:
+    from . import pgshim as sqlite3  # type: ignore
+else:
+    import sqlite3  # type: ignore
 
 log = logging.getLogger(__name__)
 
@@ -33,8 +41,16 @@ BUSY_TIMEOUT_MS = 15_000
 _wal_ready = False
 
 
-def connect() -> sqlite3.Connection:
-    """Соединение с общими настройками. Использовать вместо sqlite3.connect."""
+def connect():
+    """Соединение с общими настройками. Использовать вместо sqlite3.connect.
+
+    В PG режиме — соединение через pgshim (те же методы, что у sqlite3).
+    PRAGMA / WAL не применяются — в PG это управляется на уровне сервера.
+    """
+    if settings.use_postgres:
+        # pgshim.connect игнорирует timeout и row_factory (эмулирует их сам)
+        return sqlite3.connect(settings.pg_dsn)
+
     global _wal_ready
     c = sqlite3.connect(settings.db_path, timeout=BUSY_TIMEOUT_MS / 1000)
     c.row_factory = sqlite3.Row

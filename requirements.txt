@@ -3,3 +3,6 @@ uvicorn[standard]==0.30.1
 pydantic==2.7.4
 pydantic-settings==2.3.4
 PyJWT==2.8.0
+# PostgreSQL — используется через pgshim.py (sqlite3-совместимый API).
+# Основной backend (favorit-app) пишет в PG, admin должен читать оттуда же.
+psycopg2-binary==2.9.9
