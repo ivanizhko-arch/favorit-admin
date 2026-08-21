@@ -408,6 +408,144 @@ def internal_categories(request: Request):
             "text_max": settings.complaint_text_max}
 
 
+@router.get("/api/chats")
+def admin_chats_list(
+    days: int = 30,
+    only_waiting_hours: float = 0,
+    filter_lawyer: str = "",
+    filter_client: str = "",
+    _: str = Depends(get_admin),
+):
+    """Лента всех чатов клиентов из мобильного приложения.
+    Читается напрямую из общей `chat_messages` таблицы SQLite (та же БД
+    что и основной backend). Одна строка на клиента: последнее сообщение,
+    ФИО куратора, счётчики.
+
+    Фильтры:
+      · days — активность за N дней
+      · only_waiting_hours — только те где клиент писал последним и
+        прошло больше N часов без ответа юриста
+      · filter_lawyer — подстрока в author_name
+      · filter_client — подстрока в email или app_name/name клиента
+    """
+    from datetime import datetime, timezone, timedelta
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days))).isoformat(timespec="seconds")
+
+    with db._conn() as c:
+        rows = c.execute(
+            "SELECT email, MAX(id) AS last_id, COUNT(*) AS total_msgs "
+            "FROM chat_messages WHERE created_at > ? "
+            "GROUP BY email ORDER BY last_id DESC",
+            (cutoff,),
+        ).fetchall()
+
+        clients = []
+        now = datetime.now(timezone.utc)
+        for r in rows:
+            email = r["email"]
+            last = c.execute(
+                "SELECT created_at, incoming, kind, author_name, "
+                "substr(text, 1, 120) txt, is_file, file_name "
+                "FROM chat_messages WHERE id = ?",
+                (r["last_id"],),
+            ).fetchone()
+            lawyer_row = c.execute(
+                "SELECT author_name FROM chat_messages "
+                "WHERE email = ? AND incoming = 1 AND author_name != '' "
+                "ORDER BY id DESC LIMIT 1",
+                (email,),
+            ).fetchone()
+            lawyer_name = lawyer_row["author_name"] if lawyer_row else ""
+            user_row = c.execute(
+                "SELECT app_name, name FROM users WHERE email = ?",
+                (email,),
+            ).fetchone()
+            client_name = ""
+            if user_row:
+                client_name = (user_row["app_name"] or user_row["name"] or "").strip()
+            counts = c.execute(
+                "SELECT SUM(CASE WHEN incoming=0 THEN 1 ELSE 0 END) client_n, "
+                "SUM(CASE WHEN incoming=1 THEN 1 ELSE 0 END) lawyer_n "
+                "FROM chat_messages WHERE email = ? AND created_at > ?",
+                (email, cutoff),
+            ).fetchone()
+
+            last_from = "lawyer" if last["incoming"] else "client"
+            try:
+                last_dt = datetime.fromisoformat(last["created_at"].replace("Z", "+00:00"))
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=timezone.utc)
+                hours_since = (now - last_dt).total_seconds() / 3600
+            except Exception:
+                hours_since = 0
+
+            waiting = last_from == "client" and hours_since > 0
+            preview = last["txt"] or ""
+            if last["is_file"] and last["file_name"]:
+                preview = f"📎 {last['file_name']}"
+            if last["kind"] == "system" and not preview:
+                preview = "(системное сообщение)"
+
+            item = {
+                "email": email,
+                "client_name": client_name,
+                "lawyer_name": lawyer_name,
+                "last_at": last["created_at"],
+                "last_from": last_from,
+                "last_text": preview,
+                "hours_since_last": round(hours_since, 1),
+                "waiting": waiting,
+                "client_msgs": int(counts["client_n"] or 0),
+                "lawyer_msgs": int(counts["lawyer_n"] or 0),
+                "total_msgs": int(r["total_msgs"] or 0),
+            }
+            if only_waiting_hours > 0:
+                if not waiting or hours_since < only_waiting_hours:
+                    continue
+            if filter_lawyer and filter_lawyer.lower() not in lawyer_name.lower():
+                continue
+            if filter_client:
+                fc = filter_client.lower()
+                if fc not in email.lower() and fc not in client_name.lower():
+                    continue
+            clients.append(item)
+
+    summary = {
+        "clients_total": len(clients),
+        "waiting_2h": sum(1 for x in clients if x["waiting"] and x["hours_since_last"] >= 2),
+        "waiting_4h": sum(1 for x in clients if x["waiting"] and x["hours_since_last"] >= 4),
+        "answered_last": sum(1 for x in clients if x["last_from"] == "lawyer"),
+    }
+    return {"summary": summary, "clients": clients}
+
+
+@router.get("/api/chats/{email}")
+def admin_chat_history(email: str, limit: int = 300, _: str = Depends(get_admin)):
+    """Полная переписка с одним клиентом — раскрывается в модалке."""
+    with db._conn() as c:
+        rows = c.execute(
+            "SELECT id, created_at, incoming, kind, author_name, text, "
+            "is_file, file_url, file_name FROM chat_messages "
+            "WHERE email = ? ORDER BY id DESC LIMIT ?",
+            (email.lower(), int(limit)),
+        ).fetchall()
+    messages = [
+        {
+            "id": r["id"],
+            "at": r["created_at"],
+            "from": "lawyer" if r["incoming"] else "client",
+            "author": r["author_name"] or "",
+            "text": r["text"] or "",
+            "kind": r["kind"] or "msg",
+            "is_file": bool(r["is_file"]),
+            "file_url": r["file_url"] or "",
+            "file_name": r["file_name"] or "",
+        }
+        for r in rows
+    ]
+    return {"email": email, "messages": list(reversed(messages))}
+
+
 @router.get("")
 def admin_page():
     path = os.path.join(os.path.dirname(__file__), "static", "admin.html")

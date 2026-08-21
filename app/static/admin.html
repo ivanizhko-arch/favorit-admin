@@ -143,6 +143,8 @@
               aria-controls="p-dashboard">Дашборд</button>
       <button type="button" role="tab" data-tab="clients" aria-selected="false"
               aria-controls="p-clients">Клиенты</button>
+      <button type="button" role="tab" data-tab="chats" aria-selected="false"
+              aria-controls="p-chats">Чаты</button>
       <button type="button" role="tab" data-tab="quality" aria-selected="false"
               aria-controls="p-quality">Качество</button>
     </div>
@@ -258,6 +260,63 @@
     </table>
 
     </section>
+
+    <!-- ВКЛАДКА: ЧАТЫ КЛИЕНТОВ ИЗ ПРИЛОЖЕНИЯ -->
+    <section class="panel hidden" id="p-chats" role="tabpanel">
+
+    <div class="section-title" id="s-chats">💬 Чаты клиентов из приложения</div>
+    <p class="muted" style="margin-bottom:14px">
+      Живая лента переписки. Красная полоса — клиент ждёт ответа. Зелёная — юрист ответил последним.
+      Обновляется автоматически каждые 30 секунд. Клик по клиенту — вся история.
+    </p>
+
+    <div class="filters">
+      <select id="ch-days" onchange="loadChats()">
+        <option value="1">1 день</option>
+        <option value="7">7 дней</option>
+        <option value="30" selected>30 дней</option>
+        <option value="90">90 дней</option>
+      </select>
+      <select id="ch-waiting" onchange="loadChats()">
+        <option value="0">Все чаты</option>
+        <option value="2">Ждут > 2 часов</option>
+        <option value="4">Ждут > 4 часов</option>
+        <option value="24">Ждут > 1 суток</option>
+      </select>
+      <input class="grow" id="ch-lawyer" placeholder="Фильтр: имя юриста" oninput="chDebounce('lawyer')">
+      <input class="grow" id="ch-client" placeholder="Фильтр: имя или email клиента" oninput="chDebounce('client')">
+      <button class="btn-ghost" onclick="loadChats()">Обновить</button>
+      <span class="muted" id="ch-status"></span>
+    </div>
+
+    <div id="ch-summary" class="tiles" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px"></div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Клиент</th>
+          <th>Куратор</th>
+          <th>Последнее сообщение</th>
+          <th style="text-align:right">Когда</th>
+          <th style="text-align:right">Сообщений</th>
+        </tr>
+      </thead>
+      <tbody id="ch-rows">
+        <tr><td colspan="5" class="empty">Загружаем…</td></tr>
+      </tbody>
+    </table>
+
+    </section>
+
+    <!-- Модалка полной истории чата -->
+    <div id="ch-modal" class="hidden" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:200;padding:40px 20px;overflow:auto">
+      <div style="max-width:720px;margin:0 auto;background:var(--ink2);border:1px solid var(--line);border-radius:16px;padding:22px 24px 26px">
+        <button onclick="document.getElementById('ch-modal').classList.add('hidden')" style="float:right;background:transparent;color:var(--muted);font-size:24px;padding:0 6px;border-radius:6px;line-height:1">×</button>
+        <h3 id="ch-modal-title" style="color:var(--gold);font-size:17px;margin-bottom:4px">Чат</h3>
+        <div id="ch-modal-sub" class="muted" style="font-size:12px;margin-bottom:20px"></div>
+        <div id="ch-modal-body"></div>
+      </div>
+    </div>
 
     <!-- ВКЛАДКА: КАЧЕСТВО -->
     <section class="panel hidden" id="p-quality" role="tabpanel">
@@ -510,6 +569,7 @@
   const TAB_LOADERS = {
     dashboard: () => { loadStats(); loadStages(); loadTrend(); },
     clients:   () => { loadUsers(); loadCollectors(); loadWhitelist(); },
+    chats:     () => { loadChats(); startChatsAutoRefresh(); },
     quality:   () => { loadQuality(); loadNps(); loadSupervision();
                        loadRefusals(); loadStuck(); loadComplaints(); },
   };
@@ -1302,6 +1362,164 @@
       else alert('Не отправлено: ' + (r.error || 'неизвестная ошибка'));
       loadQuality();
     });
+  }
+
+  // ==== Чаты клиентов из мобильного приложения ====
+
+  let chatsRefreshTimer = null;
+  const chDebounceTimers = {};
+
+  function chDebounce(kind){
+    clearTimeout(chDebounceTimers[kind]);
+    chDebounceTimers[kind] = setTimeout(loadChats, 400);
+  }
+
+  function chEsc(s){
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function chFormatTime(iso){
+    if(!iso) return '';
+    const d = new Date(iso);
+    const now = new Date();
+    const diffH = (now - d) / 3600000;
+    if(diffH < 24) return d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
+    return d.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'}) + ' ' +
+           d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
+  }
+
+  function chHotBadge(h){
+    if(h < 1) return `${h.toFixed(1)}ч назад`;
+    if(h < 24) return `${Math.round(h)}ч назад`;
+    return `${Math.round(h/24)}д назад`;
+  }
+
+  function startChatsAutoRefresh(){
+    if(chatsRefreshTimer) return;
+    chatsRefreshTimer = setInterval(() => {
+      if(currentTab === 'chats') loadChats();
+    }, 30000);
+  }
+
+  async function loadChats(){
+    const st = document.getElementById('ch-status');
+    st.textContent = 'Загружаем…';
+    st.style.color = 'var(--muted)';
+    const params = new URLSearchParams({
+      days: document.getElementById('ch-days').value,
+      only_waiting_hours: document.getElementById('ch-waiting').value,
+      filter_lawyer: document.getElementById('ch-lawyer').value,
+      filter_client: document.getElementById('ch-client').value,
+    });
+    try{
+      const j = await api('/chats?' + params.toString());
+      renderChatsSummary(j.summary);
+      renderChatsRows(j.clients);
+      st.textContent = 'Обновлено: ' + new Date().toLocaleTimeString('ru-RU');
+    }catch(e){
+      st.textContent = 'Ошибка: ' + e.message;
+      st.style.color = 'var(--danger)';
+    }
+  }
+
+  function renderChatsSummary(s){
+    const box = document.getElementById('ch-summary');
+    const items = [
+      ['Всего активны', s.clients_total, 'клиентов писали за период', ''],
+      ['Ждут > 2 часов', s.waiting_2h, 'клиенту ещё не ответили', s.waiting_2h > 0 ? 'color:var(--danger)' : ''],
+      ['Ждут > 4 часов', s.waiting_4h, 'критично — юрист должен подойти', s.waiting_4h > 0 ? 'color:var(--danger)' : ''],
+      ['С ответом юриста', s.answered_last, 'последнее сообщение от юриста', 'color:var(--ok)'],
+    ];
+    box.innerHTML = items.map(([label, val, sub, style]) => `
+      <div class="tile">
+        <b style="${style}">${val}</b>
+        <span>${chEsc(label)}</span>
+        <span class="sub">${chEsc(sub)}</span>
+      </div>
+    `).join('');
+  }
+
+  function renderChatsRows(clients){
+    const tb = document.getElementById('ch-rows');
+    if(!clients.length){
+      tb.innerHTML = '<tr><td colspan="5" class="empty">Ничего не найдено по фильтрам</td></tr>';
+      return;
+    }
+    tb.innerHTML = clients.map(c => {
+      const clientLabel = c.client_name || c.email.split('@')[0];
+      const fromClient = c.last_from === 'client';
+      const badge = c.waiting
+        ? `<span class="badge b-blocked">клиент ждёт</span>`
+        : `<span class="badge b-ok">ответ дан</span>`;
+      const preview = fromClient
+        ? `<span style="color:var(--ok);font-weight:700">Клиент:</span> ${chEsc(c.last_text)}`
+        : `<span style="color:var(--gold);font-weight:700">Юрист:</span> ${chEsc(c.last_text)}`;
+      const hotStyle = c.waiting && c.hours_since_last >= 2 ? 'color:var(--danger);font-weight:700' : '';
+      const rowShadow = c.waiting
+        ? 'box-shadow:inset 3px 0 0 var(--danger)'
+        : (c.last_from === 'lawyer' ? 'box-shadow:inset 3px 0 0 var(--ok)' : '');
+      return `
+        <tr style="cursor:pointer;${rowShadow}" onclick="openChatModal('${chEsc(c.email)}', ${JSON.stringify(clientLabel)})">
+          <td>
+            <div style="font-weight:700;color:#e8ebf1">${chEsc(clientLabel)}</div>
+            <div class="muted mono" style="margin-top:2px">${chEsc(c.email)}</div>
+            <div style="margin-top:6px">${badge}</div>
+          </td>
+          <td>${chEsc(c.lawyer_name || '— не назначен')}</td>
+          <td style="max-width:340px;color:#c8ccd4;font-size:12.5px;line-height:1.5">${preview}</td>
+          <td style="text-align:right">
+            <div style="${hotStyle}">${chHotBadge(c.hours_since_last)}</div>
+            <div class="muted" style="font-size:11px;margin-top:2px">${chFormatTime(c.last_at)}</div>
+          </td>
+          <td style="text-align:right;font-size:12px;color:var(--muted)">
+            📥 ${c.client_msgs}<br>📤 ${c.lawyer_msgs}
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  async function openChatModal(email, name){
+    const modal = document.getElementById('ch-modal');
+    document.getElementById('ch-modal-title').textContent = name;
+    document.getElementById('ch-modal-sub').textContent = email;
+    const body = document.getElementById('ch-modal-body');
+    body.innerHTML = '<div class="empty">Загружаем историю…</div>';
+    modal.classList.remove('hidden');
+    try{
+      const j = await api('/chats/' + encodeURIComponent(email) + '?limit=300');
+      renderChatModal(j.messages);
+    }catch(e){
+      body.innerHTML = `<div class="empty" style="color:var(--danger)">Ошибка: ${chEsc(e.message)}</div>`;
+    }
+  }
+
+  function renderChatModal(messages){
+    const body = document.getElementById('ch-modal-body');
+    if(!messages.length){
+      body.innerHTML = '<div class="empty">Переписка пуста.</div>';
+      return;
+    }
+    body.innerHTML = messages.map(m => {
+      if(m.kind === 'system'){
+        return `<div style="text-align:center;color:var(--muted);font-style:italic;font-size:11.5px;padding:8px;margin:6px 0">${chEsc(m.text || m.author)}<br><span style="font-size:10.5px">${chFormatTime(m.at)}</span></div>`;
+      }
+      const isClient = m.from === 'client';
+      const who = isClient ? '👤 Клиент' : ('⚖️ ' + chEsc(m.author || 'Юрист'));
+      const bgColor = isClient ? 'rgba(75,189,134,0.1)' : 'rgba(215,174,94,0.1)';
+      const borderColor = isClient ? 'rgba(75,189,134,0.3)' : 'rgba(215,174,94,0.3)';
+      const align = isClient ? 'margin-right:auto' : 'margin-left:auto';
+      const bodyHtml = m.is_file && m.file_url
+        ? `<a href="${chEsc(m.file_url)}" target="_blank" style="color:var(--gold);font-weight:600;text-decoration:none">📎 ${chEsc(m.file_name || 'файл')}</a>`
+        : chEsc(m.text);
+      return `
+        <div style="background:${bgColor};border:1px solid ${borderColor};border-radius:10px;padding:10px 12px;margin:6px 0;max-width:85%;${align};font-size:13px;line-height:1.4">
+          <div style="font-size:10.5px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px">${who}</div>
+          ${bodyHtml}
+          <div style="font-size:10.5px;color:var(--muted);margin-top:4px;text-align:right">${chFormatTime(m.at)}</div>
+        </div>
+      `;
+    }).join('');
   }
 
   checkAuthConfig();
