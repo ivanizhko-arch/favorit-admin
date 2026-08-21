@@ -456,13 +456,24 @@ def admin_chats_list(
                 (email,),
             ).fetchone()
             lawyer_name = lawyer_row["author_name"] if lawyer_row else ""
-            user_row = c.execute(
-                "SELECT app_name, name FROM users WHERE email = ?",
-                (email,),
-            ).fetchone()
+            # Колонка users.app_name — миграция из основного backend
+            # (favorit_app), может ещё не примениться к общей БД. Пробуем
+            # прочитать, при OperationalError падаем на просто name.
             client_name = ""
-            if user_row:
-                client_name = (user_row["app_name"] or user_row["name"] or "").strip()
+            try:
+                user_row = c.execute(
+                    "SELECT app_name, name FROM users WHERE email = ?",
+                    (email,),
+                ).fetchone()
+                if user_row:
+                    client_name = (user_row["app_name"] or user_row["name"] or "").strip()
+            except Exception:
+                user_row = c.execute(
+                    "SELECT name FROM users WHERE email = ?",
+                    (email,),
+                ).fetchone()
+                if user_row:
+                    client_name = (user_row["name"] or "").strip()
             counts = c.execute(
                 "SELECT SUM(CASE WHEN incoming=0 THEN 1 ELSE 0 END) client_n, "
                 "SUM(CASE WHEN incoming=1 THEN 1 ELSE 0 END) lawyer_n "
