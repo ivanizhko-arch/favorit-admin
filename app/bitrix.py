@@ -135,6 +135,39 @@ def user_info(user_id: int) -> dict:
     }
 
 
+_active_manager_cache: dict[int, bool] = {}
+
+
+def is_active_manager(user_id: int) -> bool:
+    """Действующий ли сотрудник в Bitrix (не уволен). Кэшируется в памяти
+    процесса. Кэш живёт до рестарта или ручного clear_manager_cache().
+
+    Используется для фильтра «недействующих менеджеров» в рейтинге NPS
+    и таблице отказов — уволенные сотрудники не должны попадать в топы
+    и списки для назначения, даже если старые оценки/сделки на них есть.
+
+    Bitrix недоступен → считаем активным (fail-open), чтобы не скрывать
+    всех менеджеров при временной ошибке сети.
+    """
+    if not user_id:
+        return False
+    if user_id in _active_manager_cache:
+        return _active_manager_cache[user_id]
+    try:
+        info = user_info(user_id)
+        _active_manager_cache[user_id] = bool(info.get("active"))
+    except Exception as e:  # noqa: BLE001
+        log.warning("is_active_manager(%s) failed: %s — fail-open", user_id, e)
+        _active_manager_cache[user_id] = True
+    return _active_manager_cache[user_id]
+
+
+def clear_active_manager_cache() -> None:
+    """Сбросить кэш активности менеджеров. Вызывать после ручного sync
+    или если известно что кто-то был уволен/восстановлен в Bitrix."""
+    _active_manager_cache.clear()
+
+
 def user_name(user_id: int) -> str:
     """Имя сотрудника для отчётов. Пустая строка, если пользователь скрыт
     или удалён — падать из-за подписи не станем."""

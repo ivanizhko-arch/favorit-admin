@@ -205,7 +205,7 @@
       <button class="btn-ghost" onclick="loadUsers()">Обновить</button>
     </div>
     <table>
-      <thead><tr><th>Пользователь</th><th>Телефон</th><th>Последний вход</th><th>Статус</th><th>Действия</th></tr></thead>
+      <thead><tr><th>Пользователь</th><th>Телефон</th><th>Последний вход</th><th>Статус</th><th>Bitrix</th><th>Действия</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
     <div class="pager">
@@ -362,20 +362,7 @@
     <div class="section-title" id="s-refusals">📉 Отказы по менеджерам</div>
     <div id="sv-warn"></div>
     <div class="filters">
-      <input class="grow" id="sv-q" placeholder="Поиск: фамилия или должность" oninput="renderManagers()">
-      <select id="sv-position" onchange="renderManagers()">
-        <option value="">Все должности</option>
-      </select>
-      <select id="sv-status" onchange="renderManagers()">
-        <option value="">Все, включая уволенных</option>
-        <option value="active">Только действующие</option>
-        <option value="inactive">Только уволенные</option>
-      </select>
-      <select id="sv-type" onchange="renderManagers()">
-        <option value="">Люди и учётки</option>
-        <option value="employee">Только сотрудники</option>
-        <option value="other">Только роботы и внешние</option>
-      </select>
+      <input class="grow" id="sv-q" placeholder="Поиск: фамилия менеджера" oninput="renderManagers()">
       <select id="sv-minrate" onchange="renderManagers()">
         <option value="0">Любая доля отказов</option>
         <option value="20">Доля от 20%</option>
@@ -391,7 +378,14 @@
       <button class="btn-ghost" onclick="resetManagerFilters()">Сбросить</button>
     </div>
     <table>
-      <thead><tr><th>Менеджер</th><th>Должность</th><th>Дел всего</th><th>В работе</th><th>Отказов</th><th>Доля отказов</th><th>Из-за менеджера</th><th>Причина не выяснена</th></tr></thead>
+      <thead><tr>
+        <th>Менеджер</th>
+        <th>Дел всего</th>
+        <th title="Стадии «договор заключён» + «сбор документов»">Сбор доков</th>
+        <th title="Стадии «поданы» + «отложены» + «заседание отложено»">Поданы/отложены</th>
+        <th title="«Реструктуризация» + «Реализация» (без «успешно реализовано»)">РД/Реализация</th>
+        <th title="% отказов = условный отказ + не платит + отказ от работы + сделка провалена">% отказов</th>
+      </tr></thead>
       <tbody id="sv-rows"></tbody>
     </table>
     <p class="muted" id="sv-shown" style="margin-top:10px"></p>
@@ -616,37 +610,71 @@
   window.addEventListener('hashchange', () => openTab(location.hash.slice(1)));
 
   // ---- KPI-сводка ----
+  // Тайлы «Пользователи» кликабельны — переводят на вкладку Клиенты
+  // с preset-фильтром. Так админ видит откуда цифра и по каким людям
+  // сформирована. Аналогично для коллекторов и оценок клиентов.
+  window.drillTo = function(tab, filters){
+    for (const [id, val] of Object.entries(filters || {})){
+      const el = document.getElementById(id);
+      if (el) el.value = val;
+    }
+    location.hash = '#' + tab;
+    // openTab вызовется через hashchange; но loader'ы дёрнем сразу,
+    // чтобы фильтры применились (openTab кэширует загрузку вкладки).
+    setTimeout(() => {
+      if (tab === 'clients' && window.loadUsers) window.loadUsers();
+      if (tab === 'clients' && window.loadCollectors) window.loadCollectors();
+    }, 100);
+  };
+
   async function loadStats(){
     const s = await api('/stats');
     const c = s.collectors || {}, n = s.nps || {};
+    // Каждый tile: [name, value, sub, drill]. drill = {tab, filters}
+    // или null (некликабельный).
     const groups = [
       ['Пользователи', [
-        ['Всего', s.total, ''],
-        ['Активны за 7 дней', s.active_7d, `за 30 дней: ${s.active_30d ?? '—'}`],
-        ['Новых за 7 дней', s.new_7d ?? 0, ''],
-        ['Заблокировано', s.blocked, `всего входов: ${s.logins}`],
+        ['Всего', s.total, '',
+          {tab:'clients', filters:{'u-status':'', 'u-sort':'last_seen'}}],
+        ['Активны за 7 дней', s.active_7d, `за 30 дней: ${s.active_30d ?? '—'}`,
+          {tab:'clients', filters:{'u-status':'active', 'u-sort':'last_seen'}}],
+        ['Новых за 7 дней', s.new_7d ?? 0, '',
+          {tab:'clients', filters:{'u-status':'', 'u-sort':'first_seen'}}],
+        ['Заблокировано', s.blocked, `всего входов: ${s.logins}`,
+          {tab:'clients', filters:{'u-status':'blocked', 'u-sort':'last_seen'}}],
       ]],
       ['База коллекторов', [
-        ['Заблокировано номеров', c.confirmed ?? 0, ''],
-        ['На проверке', c.pending ?? 0, ''],
-        ['Всего в базе', c.total ?? 0, ''],
-        ['Белый список', c.whitelist ?? 0, ''],
+        ['Заблокировано номеров', c.confirmed ?? 0, '',
+          {tab:'clients', filters:{'c-status':'confirmed'}}],
+        ['На проверке', c.pending ?? 0, '',
+          {tab:'clients', filters:{'c-status':'pending'}}],
+        ['Всего в базе', c.total ?? 0, '',
+          {tab:'clients', filters:{'c-status':''}}],
+        ['Белый список', c.whitelist ?? 0, '', null],
       ]],
       ['Оценки клиентов', [
-        ['Средняя оценка', n.count ? n.avg_score : '—', `всего оценок: ${n.count ?? 0}`],
-        ['Оценок за 30 дней', n.count_30d ?? 0, n.count_30d ? `средняя: ${n.avg_score_30d}` : ''],
-        ['Оставили отзыв', `${n.review_rate ?? 0}%`, `${n.reviews ?? 0} из ${n.count ?? 0}`],
+        ['Средняя оценка', n.count ? n.avg_score : '—', `всего оценок: ${n.count ?? 0}`,
+          {tab:'nps', filters:{}}],
+        ['Оценок за 30 дней', n.count_30d ?? 0, n.count_30d ? `средняя: ${n.avg_score_30d}` : '',
+          {tab:'nps', filters:{}}],
+        ['Оставили отзыв', `${n.review_rate ?? 0}%`, `${n.reviews ?? 0} из ${n.count ?? 0}`,
+          {tab:'nps', filters:{}}],
       ]],
     ];
     document.getElementById('kpi').innerHTML = groups.map(([label, tiles]) => `
       <div class="kpi-group">
         <div class="kpi-label">${esc(label)}</div>
-        <div class="tiles">${tiles.map(([name, value, sub]) => `
-          <div class="tile">
+        <div class="tiles">${tiles.map(([name, value, sub, drill]) => {
+          const clickable = drill
+            ? ` onclick='drillTo(${JSON.stringify(drill.tab)}, ${JSON.stringify(drill.filters)})' style="cursor:pointer" title="Открыть список"`
+            : '';
+          return `
+          <div class="tile"${clickable}>
             <b>${esc(value)}</b>
-            <span>${esc(name)}</span>
+            <span>${esc(name)}${drill ? ' <span class="muted" style="font-size:0.75em">→</span>' : ''}</span>
             ${sub ? `<span class="sub">${esc(sub)}</span>` : ''}
-          </div>`).join('')}
+          </div>`;
+        }).join('')}
         </div>
       </div>`).join('');
   }
@@ -814,7 +842,7 @@
     const data = await api('/users?'+params);
     const rows = document.getElementById('rows');
     if(!data.items.length){
-      rows.innerHTML = `<tr><td colspan="5" class="empty">${
+      rows.innerHTML = `<tr><td colspan="6" class="empty">${
         data.total === 0 && !params.get('q') && !params.get('status_filter')
           ? 'Пока нет пользователей. Войдите в приложение под каким-нибудь e-mail — он появится здесь.'
           : 'Под фильтры никто не подходит.'}</td></tr>`;
@@ -826,11 +854,29 @@
         const blockBtn = u.blocked
           ? `<button class="btn-warn" onclick="block('${jsq(u.email)}',false)">Разблокировать</button>`
           : `<button class="btn-warn" onclick="block('${jsq(u.email)}',true)">Заблокировать</button>`;
+        // Bitrix: ссылка на глобальный поиск CRM по email клиента.
+        // Клик открывает Bitrix в новой вкладке — юрист сразу видит
+        // связанные контакты и сделки. Прямой deal-URL не строим:
+        // это N запросов в Bitrix при каждой загрузке страницы (медленно),
+        // а поиск по email работает без backend-запросов.
+        const bitrixSearch = `https://favorit-consult.bitrix24.ru/search/?q=${encodeURIComponent(u.email)}`;
+        // Идентификатор клиента: если имени нет — показываем «Новый клиент»
+        // + email, чтобы строка не выглядела «пустой».
+        const nameLine = u.name
+          ? `<div>${esc(u.name)}</div>`
+          : `<div class="muted"><i>Новый клиент</i></div>`;
+        // Телефон: если пустой — не показываем «—», а показываем пустой
+        // subtle-текст «не указан» без формата номера. Так меньше визуального
+        // шума в строке и понятно что данных нет.
+        const phoneCell = u.phone
+          ? esc(u.phone)
+          : '<span class="muted"><i>не указан</i></span>';
         return `<tr>
-          <td><div>${esc(u.name || '—')}</div><div class="muted">${esc(u.email)}</div></td>
-          <td>${esc(u.phone || '—')}</td>
+          <td>${nameLine}<div class="muted">${esc(u.email)}</div></td>
+          <td>${phoneCell}</td>
           <td class="muted">${when(u.last_seen)}</td>
           <td>${badge}${consent}</td>
+          <td><a class="btn-ghost" href="${bitrixSearch}" target="_blank" rel="noopener" title="Открыть в Bitrix — поиск по email">↗ Открыть</a></td>
           <td><div class="row-actions">
             ${blockBtn}
             <button class="btn-ghost" onclick="reset('${jsq(u.email)}')">Сбросить сессию</button>
@@ -1009,20 +1055,15 @@
 
   function renderManagers(){
     const q = document.getElementById('sv-q').value.trim().toLowerCase();
-    const pos = document.getElementById('sv-position').value;
-    const status = document.getElementById('sv-status').value;
-    const type = document.getElementById('sv-type').value;
     const minRate = parseFloat(document.getElementById('sv-minrate').value) || 0;
     const minDeals = parseInt(document.getElementById('sv-mindeals').value, 10) || 0;
 
+    // Уволенные скрыты backend'ом (bitrix.is_active_manager). Здесь
+    // фильтруем только по поиску и минимальным порогам — админка теперь
+    // распространяется на весь Bitrix, поэтому в поиске отображаются
+    // все действующие менеджеры.
     const rows = svManagers.filter(x => {
-      if(q && !(x.manager_name + ' ' + (x.position||'')).toLowerCase().includes(q)) return false;
-      if(pos === '__none__' && x.position) return false;
-      if(pos && pos !== '__none__' && x.position !== pos) return false;
-      if(status === 'active' && !x.active) return false;
-      if(status === 'inactive' && x.active) return false;
-      if(type === 'employee' && !x.is_employee) return false;
-      if(type === 'other' && x.is_employee) return false;
+      if(q && !x.manager_name.toLowerCase().includes(q)) return false;
       if(x.refusal_rate < minRate) return false;
       if(x.deals < minDeals) return false;
       return true;
@@ -1030,33 +1071,25 @@
 
     const t = document.getElementById('sv-rows');
     if(!svManagers.length){
-      t.innerHTML = '<tr><td colspan="8" class="empty">Сделок в снимке нет. Обновите данные из Битрикса на вкладке «Дашборд».</td></tr>';
+      t.innerHTML = '<tr><td colspan="6" class="empty">Сделок в снимке нет. Обновите данные из Битрикса на вкладке «Дашборд».</td></tr>';
     } else if(!rows.length){
-      t.innerHTML = '<tr><td colspan="8" class="empty">Под фильтры никто не подходит.</td></tr>';
+      t.innerHTML = '<tr><td colspan="6" class="empty">Под фильтры никто не подходит.</td></tr>';
     } else {
       t.innerHTML = rows.map(x => {
-        // Уволенных и роботов не прячем, а помечаем: видно, кто это,
-        // и цифры по ним при этом остаются на виду.
-        const marks =
-          (!x.active ? ' <span class="badge b-mute" title="сотрудник уволен">уволен</span>' : '') +
-          (!x.is_employee ? ' <span class="badge b-neutral" title="робот или внешняя учётка">не сотрудник</span>' : '');
         return `<tr>
-          <td>${esc(x.manager_name)}${marks}</td>
-          <td class="muted">${esc(x.position || '—')}</td>
+          <td>${esc(x.manager_name)}</td>
           <td>${esc(x.deals)}</td>
-          <td class="muted">${esc(x.in_progress)}</td>
-          <td>${x.refusals ? `<span class="badge b-low">${esc(x.refusals)}</span>` : '<span class="muted">—</span>'}</td>
+          <td>${x.sbor_docs || '<span class="muted">—</span>'}</td>
+          <td>${x.podany || '<span class="muted">—</span>'}</td>
+          <td>${x.rd_real || '<span class="muted">—</span>'}</td>
           <td><b style="color:${rateClass(x.refusal_rate)}">${esc(x.refusal_rate)}%</b></td>
-          <td>${x.manager_fault ? `<span class="badge b-low">${esc(x.manager_fault)}</span>` : '<span class="muted">—</span>'}</td>
-          <td class="muted">${x.reason_unknown || '—'}</td>
         </tr>`;
       }).join('');
     }
 
-    // Итоги считаются по отфильтрованному: иначе после отбора менеджеров
-    // сопровождения внизу висела бы сумма по всей компании.
+    // Итоги считаются по отфильтрованному.
     const deals = rows.reduce((s,x) => s + x.deals, 0);
-    const refusals = rows.reduce((s,x) => s + x.refusals, 0);
+    const refusals = rows.reduce((s,x) => s + x.refusal_count, 0);
     const rate = deals ? Math.round(refusals * 1000 / deals) / 10 : 0;
     document.getElementById('sv-shown').innerHTML = svManagers.length
       ? `Показано <b>${esc(rows.length)}</b> из ${esc(svManagers.length)}: ` +
@@ -1065,8 +1098,7 @@
   }
 
   function resetManagerFilters(){
-    ['sv-q','sv-position','sv-status','sv-type'].forEach(id =>
-      document.getElementById(id).value = '');
+    document.getElementById('sv-q').value = '';
     document.getElementById('sv-minrate').value = '0';
     document.getElementById('sv-mindeals').value = '0';
     renderManagers();
@@ -1082,26 +1114,22 @@
     if(!st.bitrix_configured) problems.push('не задан <b>BITRIX_WEBHOOK_URL</b> — задачи не ставятся');
     if(!st.qc_head_set) problems.push('не задан <b>BITRIX_QC_HEAD_ID</b> — некому выяснять причины отказов');
     if(!st.support_head_set) problems.push('не задан <b>BITRIX_SUPPORT_HEAD_ID</b> — некому перехватывать зависшие дела');
-    if(st.reason_unknown) problems.push(`причина не выяснена у <b>${esc(st.reason_unknown)}</b> отказов`);
+    // Уволенные скрыты backend'ом — предупреждение если скрыто > 0.
+    if(m.hidden_inactive) {
+      problems.push(`скрыто <b>${esc(m.hidden_inactive)}</b> уволенных менеджеров с историей дел`);
+    }
     document.getElementById('sv-warn').innerHTML = problems.length
       ? `<div class="warn">${problems.map(p => '· '+p).join('<br>')}</div>` : '';
 
-    // Список должностей для фильтра — только те, что реально встречаются.
-    const psel = document.getElementById('sv-position');
-    if(psel.options.length <= 1){
-      psel.innerHTML = '<option value="">Все должности</option>' +
-        (m.positions || []).map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('') +
-        '<option value="__none__">Без должности</option>';
-    }
     renderManagers();
 
     document.getElementById('sv-note').innerHTML =
-      'Показываются все, кто встречается в сделках, — уволенные и роботы помечены, ' +
-      'но не скрыты: их дела никуда не делись, и прятать их значит терять часть картины. ' +
-      'Отбирайте фильтрами выше. ' +
-      'Доля отказов считается от всех дел менеджера, а не только от закрытых. ' +
-      'В колонке «Из-за менеджера» — только отказы с причиной «Не устроил менеджер»: ' +
-      'остальные причины к его работе не относятся и на оценку влиять не должны.';
+      'В таблице только действующие менеджеры (уволенные скрыты по данным Bitrix ACTIVE). ' +
+      'Сбор доков = «договор заключён» + «сбор документов». ' +
+      'Поданы/отложены = «поданы» + «отложены» + «заседание отложено». ' +
+      'РД/Реализация = «реструктуризация» + «реализация» (без «успешно реализовано» — это завершение). ' +
+      '% отказов = условный отказ + не платит + отказ от работы + сделка провалена, ' +
+      'от всех дел менеджера.';
 
     // Фильтр по менеджерам наполняем отсюда — список тот же.
     if(!rfFiltersFilled){
@@ -1429,23 +1457,51 @@
 
   function renderChatsSummary(s){
     const box = document.getElementById('ch-summary');
+    // Каждый тайл раскрывается: клик применяет соответствующий фильтр
+    // waiting_hours к таблице ниже. Так админ сразу видит какие именно
+    // клиенты попадают в счётчик — не приходится гадать «откуда 12».
     const items = [
-      ['Всего активны', s.clients_total, 'клиентов писали за период', ''],
-      ['Ждут > 2 часов', s.waiting_2h, 'клиенту ещё не ответили', s.waiting_2h > 0 ? 'color:var(--danger)' : ''],
-      ['Ждут > 4 часов', s.waiting_4h, 'критично — юрист должен подойти', s.waiting_4h > 0 ? 'color:var(--danger)' : ''],
-      ['С ответом юриста', s.answered_last, 'последнее сообщение от юриста', 'color:var(--ok)'],
+      ['Всего активны', s.clients_total, 'клиентов писали за период', '', '0'],
+      ['Ждут > 2 часов', s.waiting_2h, 'клиенту ещё не ответили',
+        s.waiting_2h > 0 ? 'color:var(--danger)' : '', '2'],
+      ['Ждут > 4 часов', s.waiting_4h, 'критично — юрист должен подойти',
+        s.waiting_4h > 0 ? 'color:var(--danger)' : '', '4'],
+      ['С ответом юриста', s.answered_last, 'последнее сообщение от юриста',
+        'color:var(--ok)', 'answered'],
     ];
-    box.innerHTML = items.map(([label, val, sub, style]) => `
-      <div class="tile">
+    box.innerHTML = items.map(([label, val, sub, style, filter]) => `
+      <div class="tile" onclick="chDrill('${filter}')" style="cursor:pointer" title="Показать в списке">
         <b style="${style}">${val}</b>
-        <span>${chEsc(label)}</span>
+        <span>${chEsc(label)} <span class="muted" style="font-size:0.75em">→</span></span>
         <span class="sub">${chEsc(sub)}</span>
       </div>
     `).join('');
   }
 
+  // Клик по тайлу количества → применить фильтр к таблице чатов
+  // и проскроллить к ней. Для «С ответом юриста» отдельная логика —
+  // клиентский last_from='lawyer', backend такой фильтр не поддерживает,
+  // так что делаем клиентскую фильтрацию на месте.
+  window.chDrill = function(filter){
+    if (filter === 'answered') {
+      // Клиентская фильтрация после загрузки списка
+      window.__chClientFilter = 'answered';
+      document.getElementById('ch-waiting').value = '0';
+    } else {
+      window.__chClientFilter = null;
+      document.getElementById('ch-waiting').value = filter;
+    }
+    loadChats();
+    const table = document.querySelector('#p-chats table');
+    if (table) table.scrollIntoView({behavior:'smooth', block:'start'});
+  };
+
   function renderChatsRows(clients){
     const tb = document.getElementById('ch-rows');
+    // Клиентский фильтр от drill'а — «С ответом юриста».
+    if (window.__chClientFilter === 'answered') {
+      clients = clients.filter(c => c.last_from === 'lawyer');
+    }
     if(!clients.length){
       tb.innerHTML = '<tr><td colspan="5" class="empty">Ничего не найдено по фильтрам</td></tr>';
       return;
