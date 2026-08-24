@@ -367,6 +367,7 @@
         <option value="1" selected>По клиентам (средняя)</option>
         <option value="0">Все оценки подряд</option>
       </select>
+      <label class="chk" title="Оценки клиентов чей менеджер потом был уволен — по умолчанию скрыты"><input type="checkbox" id="n-inactive" onchange="resetPage('nps');loadNps()"> С оценками уволенных</label>
       <button class="btn-ghost" onclick="loadNps()">Обновить</button>
     </div>
     <table id="nps-table">
@@ -1162,11 +1163,13 @@
 
   async function loadNps(){
     const groupByClient = document.getElementById('n-group').value === '1';
+    const includeInactive = document.getElementById('n-inactive').checked;
     const params = new URLSearchParams({
       kind: document.getElementById('n-kind').value,
       limit: PAGE,
       offset: pages.nps * PAGE,
       group_by_client: groupByClient ? 'true' : 'false',
+      include_inactive_managers: includeInactive ? 'true' : 'false',
     });
     const data = await api('/nps?'+params);
 

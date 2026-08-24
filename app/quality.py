@@ -516,13 +516,17 @@ def due_report_month(now: Optional[datetime] = None) -> Optional[str]:
 # ---------------------------------------------------------------------------
 def list_scores(kind: str = "", year_month: str = "",
                 limit: int = 50, offset: int = 0,
-                group_by_client: bool = False) -> dict:
+                group_by_client: bool = False,
+                include_inactive_managers: bool = False) -> dict:
     """Оценки с тем, что мы про них знаем.
 
     kind: '' | low | neutral | top.
     group_by_client=True: одна строка на клиента (среднее из его оценок +
-    последний менеджер + количество оценок). Иначе — все оценки подряд
-    (дубли для клиентов оценивших несколько раз)."""
+    последний менеджер + количество оценок).
+    include_inactive_managers=False (default): скрывает оценки клиентов
+    чей последний менеджер уволен (bitrix.ACTIVE=N). Оценки legitimate,
+    но админу они не нужны в отчёте по действующим сотрудникам.
+    True → показывает всё, включая старые оценки уволенных."""
     where, args = [], []
     if kind == "low":
         where.append("s.score <= ?")
@@ -587,9 +591,19 @@ def list_scores(kind: str = "", year_month: str = "",
                 }
 
         items = []
+        hidden_by_inactive = 0
+        from . import bitrix as _bitrix
         for r in rows:
             avg = round(float(r["avg_score"] or 0), 2) if r["avg_score"] else 0
             mgr = last_mgr.get(r["email"], {"manager_id": 0, "manager_name": ""})
+            mid = int(mgr.get("manager_id") or 0)
+            # Фильтр уволенных: если менеджер известен и в Bitrix уволен,
+            # скрываем его старые оценки из отчёта. Если пользователь
+            # запросил include_inactive_managers=True — показываем всё.
+            if (mid and not include_inactive_managers
+                    and not _bitrix.is_active_manager(mid)):
+                hidden_by_inactive += 1
+                continue
             items.append({
                 "email": r["email"],
                 "avg_score": avg,
@@ -607,8 +621,10 @@ def list_scores(kind: str = "", year_month: str = "",
                     else "neutral"
                 ),
             })
-        return {"items": items, "total": int(total), "limit": limit,
-                "offset": offset, "grades": grades()}
+        return {"items": items,
+                "total": int(total) - hidden_by_inactive,
+                "hidden_by_inactive": hidden_by_inactive,
+                "limit": limit, "offset": offset, "grades": grades()}
 
     # Обычный плоский режим (обратная совместимость).
     with _conn() as c:
@@ -624,12 +640,21 @@ def list_scores(kind: str = "", year_month: str = "",
         ).fetchall()
 
     items = []
+    hidden_by_inactive = 0
+    from . import bitrix as _bitrix
     for r in rows:
         d = dict(r)
+        mid = int(d.get("manager_id") or 0)
+        if (mid and not include_inactive_managers
+                and not _bitrix.is_active_manager(mid)):
+            hidden_by_inactive += 1
+            continue
         d["category"] = category(int(d["score"]))
         items.append(d)
-    return {"items": items, "total": int(total), "limit": limit,
-            "offset": offset, "grades": grades()}
+    return {"items": items,
+            "total": int(total) - hidden_by_inactive,
+            "hidden_by_inactive": hidden_by_inactive,
+            "limit": limit, "offset": offset, "grades": grades()}
 
 
 def status() -> dict:
