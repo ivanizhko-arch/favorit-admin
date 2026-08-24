@@ -109,99 +109,112 @@ def _failed_placeholders() -> tuple:
 
 
 def manager_stats() -> dict:
-    """Таблица менеджеров: дела, отказы, доля отказов.
+    """Таблица менеджеров: распределение дел по стадиям + доля отказов.
 
-    Доля считается от всех дел менеджера, а не только от закрытых: иначе
-    менеджер с одним завершённым делом и одним отказом получил бы 50 %.
+    Колонки в ответе (по ТЗ 2026-08-24):
+    - deals: всего сделок у менеджера
+    - sbor_docs: «договор заключён» + «сбор документов»
+    - podany: «поданы» + «отложены» + «заседание отложено»
+    - rd_real: «реструктуризация» + «реализация» (не путать с «успешно
+      реализовано» — это done-стадия, её исключаем)
+    - refusal_rate: % отказов от работы (условный отказ + не платит +
+      отказ от работы + сделка провалена)
+
+    Категоризация — по substring в человеческом названии стадии из
+    deal_stage_dict. Так админ не привязан к техническим ID Bitrix
+    (они меняются при переносе воронок), а работает с человекочитаемыми
+    названиями. При переименовании стадии в Bitrix — категорию можно
+    оставить через синоним ниже.
+
+    Фильтр уволенных: bitrix.is_active_manager() исключает менеджеров
+    с ACTIVE=N в Bitrix. Уволенные попадают в hidden_inactive, но не
+    отображаются в таблице.
     """
-    failed, marks = _failed_placeholders()
+    from . import bitrix
+
     cards = stages.users()
     names = {uid: c["name"] for uid, c in cards.items()}
+    stage_dict = stages.stage_names()
 
     with _conn() as c:
         rows = c.execute("SELECT assigned_by_id, stage_id FROM deal_snapshot"
                          ).fetchall()
-        reasons = {int(r["deal_id"]): r["reason"] for r in c.execute(
-            "SELECT deal_id, reason FROM deal_refusal WHERE reason != ''")}
-        deal_managers = {int(r["deal_id"]): int(r["assigned_by_id"] or 0)
-                         for r in c.execute(
-                             "SELECT deal_id, assigned_by_id FROM deal_snapshot")}
+
+    # Категории по substring в названии стадии (нижний регистр).
+    CAT_SBOR = ("договор заключ", "сбор докум")
+    CAT_PODANY = ("подан", "отложен", "заседание")
+    CAT_RD = ("реструктур", "реализация")  # исключаем «успешно реализовано»
+    CAT_REFUSAL = ("отказ", "не плат", "провалена")
+
+    def _match(stage_id: str, keywords: tuple) -> bool:
+        name = (stage_dict.get(stage_id) or "").lower()
+        return any(kw in name for kw in keywords)
+
+    def _is_rd(stage_id: str) -> bool:
+        name = (stage_dict.get(stage_id) or "").lower()
+        if "успешн" in name:  # «Успешно реализовано» — done, не РД
+            return False
+        return _match(stage_id, CAT_RD)
 
     by_manager: dict[int, dict] = {}
     for r in rows:
         mid = int(r["assigned_by_id"] or 0)
+        sid = str(r["stage_id"])
         m = by_manager.setdefault(mid, {
             "manager_id": mid,
             "manager_name": names.get(mid) or ("Не определён" if not mid
                                                else f"ID {mid}"),
-            "deals": 0, "refusals": 0, "in_progress": 0, "done": 0,
-            "manager_fault": 0, "reason_unknown": 0,
+            "deals": 0, "sbor_docs": 0, "podany": 0, "rd_real": 0,
+            "refusal_count": 0,
         })
         m["deals"] += 1
-        kind = stages.stage_kind(r["stage_id"])
-        if kind == "failed":
-            m["refusals"] += 1
-        elif kind == "done":
-            m["done"] += 1
-        elif kind in ("work", "stuck"):
-            m["in_progress"] += 1
+        if _match(sid, CAT_SBOR):
+            m["sbor_docs"] += 1
+        if _match(sid, CAT_PODANY):
+            m["podany"] += 1
+        if _is_rd(sid):
+            m["rd_real"] += 1
+        if _match(sid, CAT_REFUSAL):
+            m["refusal_count"] += 1
 
-    # Разбор причин: сколько отказов относится к работе менеджера и по
-    # скольким причина ещё не выяснена.
-    for deal_id, mid in deal_managers.items():
-        if mid not in by_manager:
-            continue
-        code = reasons.get(deal_id)
-        if code is None:
-            continue
-        if code in MANAGER_FAULT:
-            by_manager[mid]["manager_fault"] += 1
-    with _conn() as c:
-        unknown = c.execute(
-            f"SELECT d.assigned_by_id mid, COUNT(*) n FROM deal_snapshot d "
-            f"LEFT JOIN deal_refusal r ON r.deal_id = d.deal_id "
-            f"WHERE d.stage_id IN ({marks}) "
-            "AND (r.reason IS NULL OR r.reason = '') "
-            "GROUP BY d.assigned_by_id", failed).fetchall()
-    for u in unknown:
-        mid = int(u["mid"] or 0)
-        if mid in by_manager:
-            by_manager[mid]["reason_unknown"] = int(u["n"])
-
-    # Показываем всех, кто встречается в сделках. Решать, кого исключить из
-    # рассмотрения, — дело того, кто смотрит: у одного вопрос про отдел
-    # сопровождения, у другого — почему на роботе висят дела. Код, который
-    # решает это за пользователя, в первом же случае прячет нужное.
     items = []
+    hidden_inactive = 0
     for m in by_manager.values():
-        m["refusal_rate"] = (round(m["refusals"] * 100 / m["deals"], 1)
+        m["refusal_rate"] = (round(m["refusal_count"] * 100 / m["deals"], 1)
                              if m["deals"] else 0.0)
         card = cards.get(m["manager_id"], {})
         m["position"] = card.get("position", "")
         m["active"] = card.get("active", True)
         m["user_type"] = card.get("user_type", "employee")
         m["is_employee"] = m["user_type"] == "employee"
+        # Уволенные (ACTIVE=N в Bitrix) — не показываем в таблице.
+        # «Не определён» (mid=0) оставляем — это дыра в данных.
+        if m["manager_id"] > 0 and not bitrix.is_active_manager(m["manager_id"]):
+            hidden_inactive += 1
+            continue
         items.append(m)
     # Сначала те, у кого доля отказов выше — ради них таблица и нужна.
-    items.sort(key=lambda m: (-m["refusal_rate"], -m["refusals"],
+    items.sort(key=lambda m: (-m["refusal_rate"], -m["refusal_count"],
                               m["manager_name"]))
 
-    totals_deals = sum(m["deals"] for m in items)
-    totals_ref = sum(m["refusals"] for m in items)
-    # Должности, реально встречающиеся в данных, — для выпадающего фильтра.
-    positions = sorted({m["position"] for m in items if m["position"]})
     return {
         "managers": items,
-        "positions": positions,
+        "hidden_inactive": hidden_inactive,
         "totals": {
-            "deals": totals_deals,
-            "refusals": totals_ref,
-            "refusal_rate": (round(totals_ref * 100 / totals_deals, 1)
-                             if totals_deals else 0.0),
-            "reason_unknown": sum(m["reason_unknown"] for m in items),
+            "deals": sum(m["deals"] for m in items),
+            "sbor_docs": sum(m["sbor_docs"] for m in items),
+            "podany": sum(m["podany"] for m in items),
+            "rd_real": sum(m["rd_real"] for m in items),
+            "refusal_count": sum(m["refusal_count"] for m in items),
+            "refusal_rate": (round(sum(m["refusal_count"] for m in items) * 100
+                                   / sum(m["deals"] for m in items), 1)
+                             if sum(m["deals"] for m in items) else 0.0),
         },
+        # Оставлены для обратной совместимости старых consumer'ов API
+        # (frontend полностью переделан, но кто-то может дёргать endpoint):
         "reasons": REASONS,
         "sources": SOURCES,
+        "positions": [],
         "manager_fault_codes": sorted(MANAGER_FAULT),
     }
 

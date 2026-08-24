@@ -362,20 +362,7 @@
     <div class="section-title" id="s-refusals">📉 Отказы по менеджерам</div>
     <div id="sv-warn"></div>
     <div class="filters">
-      <input class="grow" id="sv-q" placeholder="Поиск: фамилия или должность" oninput="renderManagers()">
-      <select id="sv-position" onchange="renderManagers()">
-        <option value="">Все должности</option>
-      </select>
-      <select id="sv-status" onchange="renderManagers()">
-        <option value="">Все, включая уволенных</option>
-        <option value="active">Только действующие</option>
-        <option value="inactive">Только уволенные</option>
-      </select>
-      <select id="sv-type" onchange="renderManagers()">
-        <option value="">Люди и учётки</option>
-        <option value="employee">Только сотрудники</option>
-        <option value="other">Только роботы и внешние</option>
-      </select>
+      <input class="grow" id="sv-q" placeholder="Поиск: фамилия менеджера" oninput="renderManagers()">
       <select id="sv-minrate" onchange="renderManagers()">
         <option value="0">Любая доля отказов</option>
         <option value="20">Доля от 20%</option>
@@ -391,7 +378,14 @@
       <button class="btn-ghost" onclick="resetManagerFilters()">Сбросить</button>
     </div>
     <table>
-      <thead><tr><th>Менеджер</th><th>Должность</th><th>Дел всего</th><th>В работе</th><th>Отказов</th><th>Доля отказов</th><th>Из-за менеджера</th><th>Причина не выяснена</th></tr></thead>
+      <thead><tr>
+        <th>Менеджер</th>
+        <th>Дел всего</th>
+        <th title="Стадии «договор заключён» + «сбор документов»">Сбор доков</th>
+        <th title="Стадии «поданы» + «отложены» + «заседание отложено»">Поданы/отложены</th>
+        <th title="«Реструктуризация» + «Реализация» (без «успешно реализовано»)">РД/Реализация</th>
+        <th title="% отказов = условный отказ + не платит + отказ от работы + сделка провалена">% отказов</th>
+      </tr></thead>
       <tbody id="sv-rows"></tbody>
     </table>
     <p class="muted" id="sv-shown" style="margin-top:10px"></p>
@@ -1027,20 +1021,15 @@
 
   function renderManagers(){
     const q = document.getElementById('sv-q').value.trim().toLowerCase();
-    const pos = document.getElementById('sv-position').value;
-    const status = document.getElementById('sv-status').value;
-    const type = document.getElementById('sv-type').value;
     const minRate = parseFloat(document.getElementById('sv-minrate').value) || 0;
     const minDeals = parseInt(document.getElementById('sv-mindeals').value, 10) || 0;
 
+    // Уволенные скрыты backend'ом (bitrix.is_active_manager). Здесь
+    // фильтруем только по поиску и минимальным порогам — админка теперь
+    // распространяется на весь Bitrix, поэтому в поиске отображаются
+    // все действующие менеджеры.
     const rows = svManagers.filter(x => {
-      if(q && !(x.manager_name + ' ' + (x.position||'')).toLowerCase().includes(q)) return false;
-      if(pos === '__none__' && x.position) return false;
-      if(pos && pos !== '__none__' && x.position !== pos) return false;
-      if(status === 'active' && !x.active) return false;
-      if(status === 'inactive' && x.active) return false;
-      if(type === 'employee' && !x.is_employee) return false;
-      if(type === 'other' && x.is_employee) return false;
+      if(q && !x.manager_name.toLowerCase().includes(q)) return false;
       if(x.refusal_rate < minRate) return false;
       if(x.deals < minDeals) return false;
       return true;
@@ -1048,33 +1037,25 @@
 
     const t = document.getElementById('sv-rows');
     if(!svManagers.length){
-      t.innerHTML = '<tr><td colspan="8" class="empty">Сделок в снимке нет. Обновите данные из Битрикса на вкладке «Дашборд».</td></tr>';
+      t.innerHTML = '<tr><td colspan="6" class="empty">Сделок в снимке нет. Обновите данные из Битрикса на вкладке «Дашборд».</td></tr>';
     } else if(!rows.length){
-      t.innerHTML = '<tr><td colspan="8" class="empty">Под фильтры никто не подходит.</td></tr>';
+      t.innerHTML = '<tr><td colspan="6" class="empty">Под фильтры никто не подходит.</td></tr>';
     } else {
       t.innerHTML = rows.map(x => {
-        // Уволенных и роботов не прячем, а помечаем: видно, кто это,
-        // и цифры по ним при этом остаются на виду.
-        const marks =
-          (!x.active ? ' <span class="badge b-mute" title="сотрудник уволен">уволен</span>' : '') +
-          (!x.is_employee ? ' <span class="badge b-neutral" title="робот или внешняя учётка">не сотрудник</span>' : '');
         return `<tr>
-          <td>${esc(x.manager_name)}${marks}</td>
-          <td class="muted">${esc(x.position || '—')}</td>
+          <td>${esc(x.manager_name)}</td>
           <td>${esc(x.deals)}</td>
-          <td class="muted">${esc(x.in_progress)}</td>
-          <td>${x.refusals ? `<span class="badge b-low">${esc(x.refusals)}</span>` : '<span class="muted">—</span>'}</td>
+          <td>${x.sbor_docs || '<span class="muted">—</span>'}</td>
+          <td>${x.podany || '<span class="muted">—</span>'}</td>
+          <td>${x.rd_real || '<span class="muted">—</span>'}</td>
           <td><b style="color:${rateClass(x.refusal_rate)}">${esc(x.refusal_rate)}%</b></td>
-          <td>${x.manager_fault ? `<span class="badge b-low">${esc(x.manager_fault)}</span>` : '<span class="muted">—</span>'}</td>
-          <td class="muted">${x.reason_unknown || '—'}</td>
         </tr>`;
       }).join('');
     }
 
-    // Итоги считаются по отфильтрованному: иначе после отбора менеджеров
-    // сопровождения внизу висела бы сумма по всей компании.
+    // Итоги считаются по отфильтрованному.
     const deals = rows.reduce((s,x) => s + x.deals, 0);
-    const refusals = rows.reduce((s,x) => s + x.refusals, 0);
+    const refusals = rows.reduce((s,x) => s + x.refusal_count, 0);
     const rate = deals ? Math.round(refusals * 1000 / deals) / 10 : 0;
     document.getElementById('sv-shown').innerHTML = svManagers.length
       ? `Показано <b>${esc(rows.length)}</b> из ${esc(svManagers.length)}: ` +
@@ -1083,8 +1064,7 @@
   }
 
   function resetManagerFilters(){
-    ['sv-q','sv-position','sv-status','sv-type'].forEach(id =>
-      document.getElementById(id).value = '');
+    document.getElementById('sv-q').value = '';
     document.getElementById('sv-minrate').value = '0';
     document.getElementById('sv-mindeals').value = '0';
     renderManagers();
@@ -1100,26 +1080,22 @@
     if(!st.bitrix_configured) problems.push('не задан <b>BITRIX_WEBHOOK_URL</b> — задачи не ставятся');
     if(!st.qc_head_set) problems.push('не задан <b>BITRIX_QC_HEAD_ID</b> — некому выяснять причины отказов');
     if(!st.support_head_set) problems.push('не задан <b>BITRIX_SUPPORT_HEAD_ID</b> — некому перехватывать зависшие дела');
-    if(st.reason_unknown) problems.push(`причина не выяснена у <b>${esc(st.reason_unknown)}</b> отказов`);
+    // Уволенные скрыты backend'ом — предупреждение если скрыто > 0.
+    if(m.hidden_inactive) {
+      problems.push(`скрыто <b>${esc(m.hidden_inactive)}</b> уволенных менеджеров с историей дел`);
+    }
     document.getElementById('sv-warn').innerHTML = problems.length
       ? `<div class="warn">${problems.map(p => '· '+p).join('<br>')}</div>` : '';
 
-    // Список должностей для фильтра — только те, что реально встречаются.
-    const psel = document.getElementById('sv-position');
-    if(psel.options.length <= 1){
-      psel.innerHTML = '<option value="">Все должности</option>' +
-        (m.positions || []).map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('') +
-        '<option value="__none__">Без должности</option>';
-    }
     renderManagers();
 
     document.getElementById('sv-note').innerHTML =
-      'Показываются все, кто встречается в сделках, — уволенные и роботы помечены, ' +
-      'но не скрыты: их дела никуда не делись, и прятать их значит терять часть картины. ' +
-      'Отбирайте фильтрами выше. ' +
-      'Доля отказов считается от всех дел менеджера, а не только от закрытых. ' +
-      'В колонке «Из-за менеджера» — только отказы с причиной «Не устроил менеджер»: ' +
-      'остальные причины к его работе не относятся и на оценку влиять не должны.';
+      'В таблице только действующие менеджеры (уволенные скрыты по данным Bitrix ACTIVE). ' +
+      'Сбор доков = «договор заключён» + «сбор документов». ' +
+      'Поданы/отложены = «поданы» + «отложены» + «заседание отложено». ' +
+      'РД/Реализация = «реструктуризация» + «реализация» (без «успешно реализовано» — это завершение). ' +
+      '% отказов = условный отказ + не платит + отказ от работы + сделка провалена, ' +
+      'от всех дел менеджера.';
 
     // Фильтр по менеджерам наполняем отсюда — список тот же.
     if(!rfFiltersFilled){
