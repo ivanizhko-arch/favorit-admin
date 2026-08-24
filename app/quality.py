@@ -515,8 +515,14 @@ def due_report_month(now: Optional[datetime] = None) -> Optional[str]:
 # Для админки
 # ---------------------------------------------------------------------------
 def list_scores(kind: str = "", year_month: str = "",
-                limit: int = 50, offset: int = 0) -> dict:
-    """Оценки с тем, что мы про них знаем. kind: '' | low | neutral | top."""
+                limit: int = 50, offset: int = 0,
+                group_by_client: bool = False) -> dict:
+    """Оценки с тем, что мы про них знаем.
+
+    kind: '' | low | neutral | top.
+    group_by_client=True: одна строка на клиента (среднее из его оценок +
+    последний менеджер + количество оценок). Иначе — все оценки подряд
+    (дубли для клиентов оценивших несколько раз)."""
     where, args = [], []
     if kind == "low":
         where.append("s.score <= ?")
@@ -535,6 +541,76 @@ def list_scores(kind: str = "", year_month: str = "",
     limit = max(1, min(int(limit), 500))
     offset = max(0, int(offset))
 
+    if group_by_client:
+        # Агрегация: одна строка на email. Средняя оценка + последний
+        # менеджер (по свежайшему nps_id) + количество оценок.
+        with _conn() as c:
+            total = c.execute(
+                f"SELECT COUNT(DISTINCT s.email) n FROM nps_scores s{clause}",
+                args,
+            ).fetchone()["n"]
+            rows = c.execute(
+                "SELECT s.email, "
+                "  AVG(s.score) avg_score, "
+                "  COUNT(*) count, "
+                "  MAX(s.score) max_score, "
+                "  MIN(s.score) min_score, "
+                "  MAX(s.created_at) last_at, "
+                "  MIN(s.created_at) first_at "
+                "FROM nps_scores s "
+                f"{clause} "
+                "GROUP BY s.email "
+                "ORDER BY MAX(s.created_at) DESC "
+                "LIMIT ? OFFSET ?",
+                (*args, limit, offset),
+            ).fetchall()
+
+        emails = [r["email"] for r in rows]
+        # Последний менеджер по каждому email: nps_followup связан по nps_id,
+        # берём followup для последней оценки клиента.
+        last_mgr: dict[str, dict] = {}
+        if emails:
+            placeholders = ",".join("?" for _ in emails)
+            with _conn() as c:
+                mgr_rows = c.execute(
+                    f"SELECT s.email, f.manager_id, f.manager_name "
+                    "FROM nps_scores s "
+                    "JOIN nps_followup f ON f.nps_id = s.id "
+                    f"WHERE s.email IN ({placeholders}) "
+                    "AND s.id = (SELECT MAX(id) FROM nps_scores WHERE email = s.email)",
+                    emails,
+                ).fetchall()
+            for r in mgr_rows:
+                last_mgr[r["email"]] = {
+                    "manager_id": r["manager_id"],
+                    "manager_name": r["manager_name"],
+                }
+
+        items = []
+        for r in rows:
+            avg = round(float(r["avg_score"] or 0), 2) if r["avg_score"] else 0
+            mgr = last_mgr.get(r["email"], {"manager_id": 0, "manager_name": ""})
+            items.append({
+                "email": r["email"],
+                "avg_score": avg,
+                "count": int(r["count"]),
+                "max_score": int(r["max_score"]),
+                "min_score": int(r["min_score"]),
+                "last_at": r["last_at"],
+                "first_at": r["first_at"],
+                "manager_id": mgr["manager_id"],
+                "manager_name": mgr["manager_name"],
+                # Категория по средней — для окраски в UI.
+                "category": (
+                    "top" if avg >= settings.qc_promoter_min
+                    else "low" if avg <= settings.qc_detractor_max
+                    else "neutral"
+                ),
+            })
+        return {"items": items, "total": int(total), "limit": limit,
+                "offset": offset, "grades": grades()}
+
+    # Обычный плоский режим (обратная совместимость).
     with _conn() as c:
         total = c.execute(
             f"SELECT COUNT(*) n FROM nps_scores s{clause}", args).fetchone()["n"]

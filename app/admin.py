@@ -121,6 +121,32 @@ def admin_stats(_: str = Depends(get_admin)):
     return data
 
 
+@router.post("/api/users/enrich")
+def admin_users_enrich(emails: list[str], _: str = Depends(get_admin)):
+    """Обогащение списка клиентов данными из Bitrix: телефон, куратор.
+
+    Frontend загружает базовую таблицу мгновенно (из БД), затем этим
+    endpoint'ом доподгружает телефон/куратор для видимых 50 клиентов.
+    Каждый лукап кэшируется в bitrix.client_bitrix_urls на процесс,
+    повторные вызовы почти бесплатны.
+
+    Возвращает {email: {phone, manager_id, manager_name, deal_url,
+    contact_url, found}}
+    """
+    out = {}
+    for email in emails[:100]:  # защита от гигантских запросов
+        info = bitrix.client_bitrix_urls(email)
+        out[email] = {
+            "phone": info.get("phone", ""),
+            "manager_id": info.get("manager_id", 0),
+            "manager_name": info.get("manager_name", ""),
+            "deal_url": info.get("deal_url", ""),
+            "contact_url": info.get("contact_url", ""),
+            "found": info.get("found", False),
+        }
+    return out
+
+
 @router.get("/api/bitrix-link/{email}")
 def admin_bitrix_link(email: str, _: str = Depends(get_admin)):
     """Прямые URL контакта и последней сделки клиента в Bitrix CRM.
@@ -142,14 +168,18 @@ def admin_nps(
     month: str = "",
     limit: int = 50,
     offset: int = 0,
+    group_by_client: bool = False,
     _: str = Depends(get_admin),
 ):
     """Оценки клиентов вместе с менеджером и задачей контроля качества.
 
     kind: '' | low (0-6) | neutral (7-8) | top (9-10).
+    group_by_client=true: одна строка на клиента (средняя из его оценок),
+    иначе — все оценки подряд.
     """
     return quality.list_scores(kind=kind, year_month=month,
-                               limit=limit, offset=offset)
+                               limit=limit, offset=offset,
+                               group_by_client=group_by_client)
 
 
 @router.get("/api/nps/trend")
