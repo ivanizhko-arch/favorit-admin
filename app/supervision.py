@@ -67,6 +67,20 @@ def _iso(dt: datetime) -> str:
     return dt.isoformat(timespec="seconds")
 
 
+def _parse_dt(iso: str):
+    """Разбор ISO даты. None если пусто/битая."""
+    if not iso:
+        return None
+    try:
+        s = str(iso).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError):
+        return None
+
+
 def init() -> None:
     with _conn() as c:
         c.execute("""
@@ -581,4 +595,179 @@ def status() -> dict:
         "qc_head_set": bool(settings.bitrix_qc_head_id),
         "support_head_set": bool(settings.bitrix_support_head_id),
         "bitrix_configured": bitrix.configured(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Метрики менеджеров для дашборда (по ТЗ 2026-08-24, пункт 3)
+#
+# Собирает четыре характеристики каждого действующего менеджера в одном
+# запросе: количество дел в работе, среднее время ответа в чате,
+# среднюю оценку NPS, число жалоб. Возвращает готовый рейтинг для UI.
+#
+# Уволенные (bitrix.is_active_manager=False) в результат не попадают,
+# но их количество отдаётся отдельным полем hidden_inactive.
+# ---------------------------------------------------------------------------
+def _active_deals_by_manager() -> dict:
+    """Сколько дел «в работе» (kind=work/stuck) на каждого менеджера.
+    Ключ — bitrix_id, значение — количество."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT assigned_by_id, stage_id FROM deal_snapshot"
+        ).fetchall()
+    out: dict[int, int] = {}
+    for r in rows:
+        mid = int(r["assigned_by_id"] or 0)
+        if not mid:
+            continue
+        if stages.stage_kind(r["stage_id"]) not in ("work", "stuck"):
+            continue
+        out[mid] = out.get(mid, 0) + 1
+    return out
+
+
+def _reply_hours_by_manager_name() -> dict:
+    """Среднее время (в часах) между сообщением клиента и ответом юриста.
+    Ключ — имя юриста (author_name из chat_messages, т.к. bitrix_id
+    в chat_messages не хранится). Значение — {avg, count}.
+
+    Логика: для каждого клиента идём по его сообщениям по порядку id.
+    При сообщении клиента (incoming=0) — запоминаем время. При следующем
+    сообщении юриста (incoming=1) — считаем дельту и относим к имени юриста.
+    Если клиент отправил несколько сообщений подряд — считаем от первого."""
+    with _conn() as c:
+        msgs = c.execute(
+            "SELECT email, incoming, author_name, created_at "
+            "FROM chat_messages ORDER BY email, id"
+        ).fetchall()
+
+    times_by_name: dict[str, list[float]] = {}
+    current_client_at: dict[str, datetime] = {}  # email → время первого pending клиентского сообщения
+
+    for m in msgs:
+        email = m["email"]
+        created_at = _parse_dt(m["created_at"])
+        if not created_at:
+            continue
+        if int(m["incoming"] or 0) == 0:  # клиент написал
+            # Помним самое раннее ожидающее ответа — если клиент шлёт
+            # серию сообщений подряд, считаем от первого.
+            if email not in current_client_at:
+                current_client_at[email] = created_at
+        else:  # юрист ответил
+            client_at = current_client_at.pop(email, None)
+            if client_at and created_at > client_at:
+                hours = (created_at - client_at).total_seconds() / 3600
+                name = (m["author_name"] or "").strip()
+                if not name:
+                    continue
+                times_by_name.setdefault(name, []).append(hours)
+
+    out: dict[str, dict] = {}
+    for name, times in times_by_name.items():
+        if not times:
+            continue
+        out[name] = {
+            "avg_hours": round(sum(times) / len(times), 2),
+            "median_hours": round(sorted(times)[len(times) // 2], 2),
+            "count": len(times),
+        }
+    return out
+
+
+def _nps_by_manager() -> dict:
+    """Средняя оценка NPS по каждому менеджеру. Ключ — bitrix_id."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT manager_id, AVG(score) avg_score, COUNT(*) n "
+            "FROM nps_followup WHERE manager_id > 0 "
+            "GROUP BY manager_id"
+        ).fetchall()
+    out: dict[int, dict] = {}
+    for r in rows:
+        mid = int(r["manager_id"])
+        avg = r["avg_score"]
+        if avg is None:
+            continue
+        out[mid] = {
+            "avg_score": round(float(avg), 2),
+            "count": int(r["n"]),
+        }
+    return out
+
+
+def _complaints_by_manager() -> dict:
+    """Количество жалоб на каждого менеджера. Ключ — bitrix_id."""
+    try:
+        with _conn() as c:
+            rows = c.execute(
+                "SELECT manager_id, COUNT(*) n FROM complaints "
+                "WHERE manager_id > 0 GROUP BY manager_id"
+            ).fetchall()
+        return {int(r["manager_id"]): int(r["n"]) for r in rows}
+    except Exception:  # noqa: BLE001
+        # Таблица complaints может не существовать в старых установках.
+        return {}
+
+
+def manager_metrics() -> dict:
+    """Агрегированный рейтинг менеджеров: дела/менеджер + время ответа +
+    NPS + жалобы. Уволенные скрыты.
+
+    Ответ:
+        {
+          "avg_deals_per_manager": float,
+          "total_active_managers": int,
+          "hidden_inactive": int,
+          "managers": [
+             {manager_id, manager_name, deals_in_progress,
+              avg_reply_hours, nps_avg, nps_count, complaints}, ...
+          ]
+        }
+    """
+    deals_by_mid = _active_deals_by_manager()
+    reply_by_name = _reply_hours_by_manager_name()
+    nps_by_mid = _nps_by_manager()
+    complaints_by_mid = _complaints_by_manager()
+
+    cards = stages.users()
+    all_mids = set(deals_by_mid.keys()) | set(nps_by_mid.keys()) | set(complaints_by_mid.keys())
+
+    managers: list[dict] = []
+    hidden_inactive = 0
+    for mid in all_mids:
+        # Действующие только.
+        if not bitrix.is_active_manager(mid):
+            hidden_inactive += 1
+            continue
+        card = cards.get(mid, {})
+        name = card.get("name") or f"ID {mid}"
+        # chat_messages не знают bitrix_id, только author_name.
+        # Матчим по имени (в 95% случаев author_name = ФИО из user.get).
+        reply = reply_by_name.get(name)
+        nps = nps_by_mid.get(mid)
+        managers.append({
+            "manager_id": mid,
+            "manager_name": name,
+            "deals_in_progress": deals_by_mid.get(mid, 0),
+            "avg_reply_hours": reply["avg_hours"] if reply else None,
+            "reply_count": reply["count"] if reply else 0,
+            "nps_avg": nps["avg_score"] if nps else None,
+            "nps_count": nps["count"] if nps else 0,
+            "complaints": complaints_by_mid.get(mid, 0),
+        })
+
+    # Сортировка по количеству дел — так рейтинг сразу показывает загруженность.
+    managers.sort(key=lambda m: (-m["deals_in_progress"], m["manager_name"]))
+
+    active_with_deals = [m for m in managers if m["deals_in_progress"] > 0]
+    avg_deals = (round(sum(m["deals_in_progress"] for m in active_with_deals)
+                       / len(active_with_deals), 1)
+                 if active_with_deals else 0.0)
+
+    return {
+        "avg_deals_per_manager": avg_deals,
+        "total_active_managers": len(managers),
+        "hidden_inactive": hidden_inactive,
+        "managers": managers,
     }
