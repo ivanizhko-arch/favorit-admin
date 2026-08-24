@@ -2,7 +2,7 @@
 import logging
 import os
 import secrets
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -303,9 +303,20 @@ def admin_stages(_: str = Depends(get_admin)):
 
 
 @router.post("/api/stages/sync")
-def admin_stages_sync(force: bool = False, _: str = Depends(get_admin)):
-    """Обновить снимок из Битрикса вручную. force игнорирует интервал."""
-    return stages.sync(force=force)
+def admin_stages_sync(background: BackgroundTasks, force: bool = False,
+                      _: str = Depends(get_admin)):
+    """Запустить обновление снимка из Bitrix в фоне. force игнорирует
+    интервал.
+
+    Раньше был синхронным — при 2000 сделок sync занимал 60-120 сек и
+    nginx (proxy_read_timeout 60s) обрывал соединение с 504 Gateway
+    Timeout. Теперь endpoint отвечает мгновенно, а sync идёт фоном.
+    Прогресс/готовность видно через GET /api/stages (поле status.last_sync
+    обновляется когда фон закончит).
+    """
+    background.add_task(stages.sync, force=force)
+    return {"status": "started",
+            "note": "Sync запущен в фоне. Через 30-120 сек обновите /api/stages"}
 
 
 # ---------------------------------------------------------------------------
