@@ -630,6 +630,10 @@
   async function loadStats(){
     const s = await api('/stats');
     const c = s.collectors || {}, n = s.nps || {};
+    // Сохраняем домен Bitrix глобально — используется в loadUsers()
+    // для ссылок на сделки. Раньше был захардкожен и вёл на 404 у
+    // порталов с другим доменом (bitrix_domain в .env).
+    window.bitrixDomain = s.bitrix_domain || 'favorit-consult.bitrix24.ru';
     // Каждый tile: [name, value, sub, drill]. drill = {tab, filters}
     // или null (некликабельный).
     const groups = [
@@ -832,6 +836,12 @@
 
   // ---- Пользователи ----
   async function loadUsers(){
+    // window.bitrixDomain нужен для ссылок «Открыть в Bitrix». Обычно
+    // устанавливается через loadStats() на дашборде. Если админ открыл
+    // Клиентов сразу (через #clients) — подтягиваем сейчас.
+    if (!window.bitrixDomain) {
+      try { await loadStats(); } catch (e) { /* fallback на default */ }
+    }
     const params = new URLSearchParams({
       q: document.getElementById('q').value.trim(),
       status_filter: document.getElementById('u-status').value,
@@ -854,12 +864,15 @@
         const blockBtn = u.blocked
           ? `<button class="btn-warn" onclick="block('${jsq(u.email)}',false)">Разблокировать</button>`
           : `<button class="btn-warn" onclick="block('${jsq(u.email)}',true)">Заблокировать</button>`;
-        // Bitrix: ссылка на глобальный поиск CRM по email клиента.
-        // Клик открывает Bitrix в новой вкладке — юрист сразу видит
-        // связанные контакты и сделки. Прямой deal-URL не строим:
-        // это N запросов в Bitrix при каждой загрузке страницы (медленно),
-        // а поиск по email работает без backend-запросов.
-        const bitrixSearch = `https://favorit-consult.bitrix24.ru/search/?q=${encodeURIComponent(u.email)}`;
+        // Bitrix: ссылка на список контактов CRM с фильтром по email.
+        // Клик открывает Bitrix в новой вкладке — юрист видит найденные
+        // контакты (у каждого — переход в сделки). Домен берётся из
+        // /api/stats (window.bitrixDomain — устанавливается при loadStats),
+        // не хардкодится: у портала с другим доменом ссылка не работала.
+        // URL /crm/contact/list/?apply_filter=Y&FILTER_EMAIL=xxx —
+        // стандартный фильтр Bitrix CRM, работает на любом портале.
+        const domain = window.bitrixDomain || 'favorit-consult.bitrix24.ru';
+        const bitrixSearch = `https://${domain}/crm/contact/list/?apply_filter=Y&FILTER_EMAIL=${encodeURIComponent(u.email)}`;
         // Идентификатор клиента: если имени нет — показываем «Новый клиент»
         // + email, чтобы строка не выглядела «пустой».
         const nameLine = u.name

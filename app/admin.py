@@ -112,7 +112,13 @@ def admin_login(body: AdminLoginIn, request: Request):
 # ---------------------------------------------------------------------------
 @router.get("/api/stats")
 def admin_stats(_: str = Depends(get_admin)):
-    return db.stats()
+    # bitrix_domain нужен frontend'у для построения ссылок из карточки
+    # клиента в Bitrix (страница «Клиенты» + плитки дашборда). Раньше
+    # домен был захардкожен в admin.html — сломался у портала с другим
+    # доменом.
+    data = dict(db.stats())
+    data["bitrix_domain"] = settings.bitrix_domain
+    return data
 
 
 @router.get("/api/nps")
