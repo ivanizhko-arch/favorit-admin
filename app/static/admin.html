@@ -169,6 +169,22 @@
     </table>
     <p class="muted" id="st-note" style="margin-top:10px"></p>
 
+    <!-- РЕЙТИНГ МЕНЕДЖЕРОВ (метрики п.3 ТЗ) -->
+    <div class="section-title" id="s-managers" style="margin-top:22px">📊 Рейтинг менеджеров</div>
+    <div id="mm-warn"></div>
+    <div id="mm-summary"></div>
+    <table>
+      <thead><tr>
+        <th>Менеджер</th>
+        <th style="text-align:right" title="Сколько активных дел на менеджере (work + stuck)">Дел в работе</th>
+        <th style="text-align:right" title="Среднее время от сообщения клиента до ответа менеджера в чате приложения">Ср. время ответа</th>
+        <th style="text-align:right" title="Средняя оценка NPS от клиентов">NPS</th>
+        <th style="text-align:right" title="Количество жалоб на менеджера">Жалоб</th>
+      </tr></thead>
+      <tbody id="mm-rows"><tr><td colspan="5" class="empty">Загружаем...</td></tr></tbody>
+    </table>
+    <p class="muted" id="mm-note" style="margin-top:10px"></p>
+
     <!-- ТРЕНД NPS -->
     <div class="trend">
       <h3>Тренд оценок клиентов</h3>
@@ -562,7 +578,7 @@
   // Данные грузятся при первом открытии вкладки, а не все разом. Раньше вход
   // в админку разом отправлял семь запросов, а видно было два блока.
   const TAB_LOADERS = {
-    dashboard: () => { loadStats(); loadStages(); loadTrend(); },
+    dashboard: () => { loadStats(); loadStages(); loadManagerMetrics(); loadTrend(); },
     clients:   () => { loadUsers(); loadCollectors(); loadWhitelist(); },
     chats:     () => { loadChats(); startChatsAutoRefresh(); },
     quality:   () => { loadQuality(); loadNps(); loadSupervision();
@@ -766,6 +782,68 @@
       else alert(`Обновлено. Стадий: ${r.stages}, сделок: ${r.deals}, записей истории: ${r.history}.`);
       loadStages();
     });
+  }
+
+  // ---- Рейтинг менеджеров (п.3 ТЗ 2026-08-24) ----
+  // Собирает 4 метрики на каждого действующего менеджера:
+  // дела в работе, среднее время ответа в чате, средний NPS, число жалоб.
+  async function loadManagerMetrics(){
+    let d;
+    try {
+      d = await api('/manager-metrics');
+    } catch (e) {
+      document.getElementById('mm-rows').innerHTML =
+        `<tr><td colspan="5" class="empty">Не удалось загрузить: ${esc(e.message || e)}</td></tr>`;
+      return;
+    }
+    // Summary-тайлы: среднее дел на менеджера + всего действующих
+    document.getElementById('mm-summary').innerHTML = `
+      <div class="kpi-group"><div class="tiles">
+        <div class="tile"><b>${esc(d.avg_deals_per_manager)}</b>
+          <span>Среднее дел на менеджера</span>
+          <span class="sub">по действующим с делами</span></div>
+        <div class="tile"><b>${esc(d.total_active_managers)}</b>
+          <span>Действующих менеджеров</span>
+          <span class="sub">${d.hidden_inactive ? 'скрыто уволенных: ' + esc(d.hidden_inactive) : 'уволенных нет'}</span></div>
+      </div></div>`;
+
+    const t = document.getElementById('mm-rows');
+    if (!d.managers.length) {
+      t.innerHTML = '<tr><td colspan="5" class="empty">Нет данных. Проверьте что снимок сделок собран и Bitrix настроен.</td></tr>';
+      return;
+    }
+    // Раскраска: высокое время ответа — красным; низкий NPS — красным;
+    // жалобы > 0 — золотым (не критично, но обратить внимание).
+    const replyClass = h => h == null ? 'muted' : (h > 24 ? 'due-late' : (h > 8 ? 'b-gold' : ''));
+    const npsClass = n => n == null ? 'muted' : (n < 7 ? 'due-late' : (n < 8.5 ? 'b-gold' : 'b-ok'));
+    t.innerHTML = d.managers.map(m => `
+      <tr>
+        <td>${esc(m.manager_name)}</td>
+        <td style="text-align:right"><b>${esc(m.deals_in_progress)}</b></td>
+        <td style="text-align:right" class="${replyClass(m.avg_reply_hours)}">
+          ${m.avg_reply_hours == null ? '<span class="muted">—</span>'
+            : (m.avg_reply_hours < 1
+                ? `<b>${Math.round(m.avg_reply_hours * 60)} мин</b>`
+                : `<b>${esc(m.avg_reply_hours)} ч</b>`)}
+          ${m.reply_count ? `<div class="muted" style="font-size:11px">по ${esc(m.reply_count)} парам</div>` : ''}
+        </td>
+        <td style="text-align:right" class="${npsClass(m.nps_avg)}">
+          ${m.nps_avg == null ? '<span class="muted">—</span>' : `<b>${esc(m.nps_avg)}</b>`}
+          ${m.nps_count ? `<div class="muted" style="font-size:11px">${esc(m.nps_count)} оценок</div>` : ''}
+        </td>
+        <td style="text-align:right">
+          ${m.complaints > 0
+            ? `<span class="badge b-low">${esc(m.complaints)}</span>`
+            : '<span class="muted">—</span>'}
+        </td>
+      </tr>`).join('');
+
+    document.getElementById('mm-note').innerHTML =
+      'Дела в работе — активные (work + stuck), без завершённых и отказов. ' +
+      'Ср. время ответа — среднее по всем парам «сообщение клиента → следующий ответ юриста» ' +
+      'в чате приложения. Матчинг менеджера в чате идёт по author_name — если менеджер поменял имя ' +
+      'в Bitrix, старые сообщения могут не сматчиться. NPS — средняя из оценок 0-10 (сейчас в БД только 8-10). ' +
+      'Уволенные (Bitrix ACTIVE=N) в рейтинг не включаются.';
   }
 
   // ---- Тренд оценок (inline SVG, без внешних библиотек) ----
