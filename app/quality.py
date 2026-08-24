@@ -324,15 +324,35 @@ def rating(year_month: str) -> dict:
     # сотрудник, а дырка в данных, и награждать её нельзя. Плюс требуем хотя
     # бы одну лучшую оценку: месяц без похвал — не повод объявлять лидера,
     # даже если у остальных итог ещё хуже.
-    named = [m for m in by_manager.values() if m["manager_id"] and m["top"]]
+    # ФИЛЬТР УВОЛЕННЫХ: рейтинг и лидер — только действующие сотрудники.
+    # Оценки уволенных менеджеров остаются в totals (они были получены
+    # клиентами реально), но в списке рейтинга и в топе не появляются.
+    from . import bitrix
+    def _is_active(mid: int) -> bool:
+        return mid > 0 and bitrix.is_active_manager(mid)
+
+    named = [m for m in by_manager.values()
+             if m["manager_id"] and m["top"] and _is_active(m["manager_id"])]
     named.sort(key=key)
-    ranked = sorted(by_manager.values(), key=key)
+    # В рейтинге показываем действующих + «Не определён» (mid=0) как
+    # отдельную запись (это дыра в данных, а не сотрудник — но её видно
+    # для отладки).
+    ranked = sorted(
+        (m for m in by_manager.values()
+         if m["manager_id"] == 0 or _is_active(m["manager_id"])),
+        key=key,
+    )
+    hidden_inactive = sum(
+        1 for m in by_manager.values()
+        if m["manager_id"] > 0 and not _is_active(m["manager_id"])
+    )
 
     return {
         "year_month": year_month,
         "leader": named[0] if named else None,
         "managers": ranked,
         "totals": totals,
+        "hidden_inactive": hidden_inactive,
     }
 
 

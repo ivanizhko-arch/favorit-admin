@@ -205,7 +205,7 @@
       <button class="btn-ghost" onclick="loadUsers()">Обновить</button>
     </div>
     <table>
-      <thead><tr><th>Пользователь</th><th>Телефон</th><th>Последний вход</th><th>Статус</th><th>Действия</th></tr></thead>
+      <thead><tr><th>Пользователь</th><th>Телефон</th><th>Последний вход</th><th>Статус</th><th>Bitrix</th><th>Действия</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
     <div class="pager">
@@ -814,7 +814,7 @@
     const data = await api('/users?'+params);
     const rows = document.getElementById('rows');
     if(!data.items.length){
-      rows.innerHTML = `<tr><td colspan="5" class="empty">${
+      rows.innerHTML = `<tr><td colspan="6" class="empty">${
         data.total === 0 && !params.get('q') && !params.get('status_filter')
           ? 'Пока нет пользователей. Войдите в приложение под каким-нибудь e-mail — он появится здесь.'
           : 'Под фильтры никто не подходит.'}</td></tr>`;
@@ -826,11 +826,29 @@
         const blockBtn = u.blocked
           ? `<button class="btn-warn" onclick="block('${jsq(u.email)}',false)">Разблокировать</button>`
           : `<button class="btn-warn" onclick="block('${jsq(u.email)}',true)">Заблокировать</button>`;
+        // Bitrix: ссылка на глобальный поиск CRM по email клиента.
+        // Клик открывает Bitrix в новой вкладке — юрист сразу видит
+        // связанные контакты и сделки. Прямой deal-URL не строим:
+        // это N запросов в Bitrix при каждой загрузке страницы (медленно),
+        // а поиск по email работает без backend-запросов.
+        const bitrixSearch = `https://favorit-consult.bitrix24.ru/search/?q=${encodeURIComponent(u.email)}`;
+        // Идентификатор клиента: если имени нет — показываем «Новый клиент»
+        // + email, чтобы строка не выглядела «пустой».
+        const nameLine = u.name
+          ? `<div>${esc(u.name)}</div>`
+          : `<div class="muted"><i>Новый клиент</i></div>`;
+        // Телефон: если пустой — не показываем «—», а показываем пустой
+        // subtle-текст «не указан» без формата номера. Так меньше визуального
+        // шума в строке и понятно что данных нет.
+        const phoneCell = u.phone
+          ? esc(u.phone)
+          : '<span class="muted"><i>не указан</i></span>';
         return `<tr>
-          <td><div>${esc(u.name || '—')}</div><div class="muted">${esc(u.email)}</div></td>
-          <td>${esc(u.phone || '—')}</td>
+          <td>${nameLine}<div class="muted">${esc(u.email)}</div></td>
+          <td>${phoneCell}</td>
           <td class="muted">${when(u.last_seen)}</td>
           <td>${badge}${consent}</td>
+          <td><a class="btn-ghost" href="${bitrixSearch}" target="_blank" rel="noopener" title="Открыть в Bitrix — поиск по email">↗ Открыть</a></td>
           <td><div class="row-actions">
             ${blockBtn}
             <button class="btn-ghost" onclick="reset('${jsq(u.email)}')">Сбросить сессию</button>
