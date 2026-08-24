@@ -352,12 +352,16 @@ def deals_on_current_stage() -> list[dict]:
     """Дела и сколько дней каждое стоит на своей нынешней стадии."""
     now = _now()
     with _conn() as c:
+        # PostgreSQL требует все non-aggregate поля в GROUP BY.
+        # s.deal_id уникален в snapshot'e — поэтому остальные поля
+        # (stage_id, assigned_by_id, created_at) однозначны в группе.
         rows = c.execute(
             "SELECT s.deal_id, s.stage_id, s.assigned_by_id, s.created_at, "
             "       MAX(h.entered_at) entered "
             "FROM deal_snapshot s LEFT JOIN deal_stage_history h "
             "  ON h.deal_id = s.deal_id AND h.stage_id = s.stage_id "
-            "GROUP BY s.deal_id").fetchall()
+            "GROUP BY s.deal_id, s.stage_id, s.assigned_by_id, s.created_at"
+        ).fetchall()
     out = []
     for r in rows:
         entered = _parse(r["entered"]) or _parse(r["created_at"])
@@ -504,11 +508,15 @@ def overall() -> dict:
     """
     done_stage = settings.stage_done_id
     with _conn() as c:
+        # PostgreSQL требует все non-aggregate поля в GROUP BY (SQLite
+        # позволял implicit-first). Группируем и по deal_id, и по
+        # created_at — deal_id уникален в snapshot'e, значит created_at
+        # тоже уникален в контексте группы.
         rows = c.execute(
             "SELECT h.deal_id, MIN(h.entered_at) done_at, d.created_at "
             "FROM deal_stage_history h JOIN deal_snapshot d "
             "  ON d.deal_id = h.deal_id "
-            "WHERE h.stage_id = ? GROUP BY h.deal_id",
+            "WHERE h.stage_id = ? GROUP BY h.deal_id, d.created_at",
             (done_stage,)).fetchall()
         total_deals = c.execute("SELECT COUNT(*) n FROM deal_snapshot").fetchone()["n"]
 
