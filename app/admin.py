@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import complaints, db, quality, stages, supervision
+from . import bitrix, complaints, db, quality, stages, supervision
 from .config import settings
 from .security import (
     client_ip,
@@ -112,7 +112,28 @@ def admin_login(body: AdminLoginIn, request: Request):
 # ---------------------------------------------------------------------------
 @router.get("/api/stats")
 def admin_stats(_: str = Depends(get_admin)):
-    return db.stats()
+    # bitrix_domain нужен frontend'у для построения ссылок из карточки
+    # клиента в Bitrix (страница «Клиенты» + плитки дашборда). Раньше
+    # домен был захардкожен в admin.html — сломался у портала с другим
+    # доменом.
+    data = dict(db.stats())
+    data["bitrix_domain"] = settings.bitrix_domain
+    return data
+
+
+@router.get("/api/bitrix-link/{email}")
+def admin_bitrix_link(email: str, _: str = Depends(get_admin)):
+    """Прямые URL контакта и последней сделки клиента в Bitrix CRM.
+
+    Frontend вызывает при клике на «↗ Открыть» в таблице клиентов.
+    Возвращаем именно ID-based URL (не query-фильтр), потому что фильтры
+    /crm/contact/list?FILTER_EMAIL= работают не на всех порталах и часто
+    отдают 404.
+
+    Кэш в bitrix.client_bitrix_urls хранится в памяти процесса — второй
+    клик на того же клиента не идёт в Bitrix API.
+    """
+    return bitrix.client_bitrix_urls(email)
 
 
 @router.get("/api/nps")
