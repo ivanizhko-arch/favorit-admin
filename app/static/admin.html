@@ -610,37 +610,71 @@
   window.addEventListener('hashchange', () => openTab(location.hash.slice(1)));
 
   // ---- KPI-сводка ----
+  // Тайлы «Пользователи» кликабельны — переводят на вкладку Клиенты
+  // с preset-фильтром. Так админ видит откуда цифра и по каким людям
+  // сформирована. Аналогично для коллекторов и оценок клиентов.
+  window.drillTo = function(tab, filters){
+    for (const [id, val] of Object.entries(filters || {})){
+      const el = document.getElementById(id);
+      if (el) el.value = val;
+    }
+    location.hash = '#' + tab;
+    // openTab вызовется через hashchange; но loader'ы дёрнем сразу,
+    // чтобы фильтры применились (openTab кэширует загрузку вкладки).
+    setTimeout(() => {
+      if (tab === 'clients' && window.loadUsers) window.loadUsers();
+      if (tab === 'clients' && window.loadCollectors) window.loadCollectors();
+    }, 100);
+  };
+
   async function loadStats(){
     const s = await api('/stats');
     const c = s.collectors || {}, n = s.nps || {};
+    // Каждый tile: [name, value, sub, drill]. drill = {tab, filters}
+    // или null (некликабельный).
     const groups = [
       ['Пользователи', [
-        ['Всего', s.total, ''],
-        ['Активны за 7 дней', s.active_7d, `за 30 дней: ${s.active_30d ?? '—'}`],
-        ['Новых за 7 дней', s.new_7d ?? 0, ''],
-        ['Заблокировано', s.blocked, `всего входов: ${s.logins}`],
+        ['Всего', s.total, '',
+          {tab:'clients', filters:{'u-status':'', 'u-sort':'last_seen'}}],
+        ['Активны за 7 дней', s.active_7d, `за 30 дней: ${s.active_30d ?? '—'}`,
+          {tab:'clients', filters:{'u-status':'active', 'u-sort':'last_seen'}}],
+        ['Новых за 7 дней', s.new_7d ?? 0, '',
+          {tab:'clients', filters:{'u-status':'', 'u-sort':'first_seen'}}],
+        ['Заблокировано', s.blocked, `всего входов: ${s.logins}`,
+          {tab:'clients', filters:{'u-status':'blocked', 'u-sort':'last_seen'}}],
       ]],
       ['База коллекторов', [
-        ['Заблокировано номеров', c.confirmed ?? 0, ''],
-        ['На проверке', c.pending ?? 0, ''],
-        ['Всего в базе', c.total ?? 0, ''],
-        ['Белый список', c.whitelist ?? 0, ''],
+        ['Заблокировано номеров', c.confirmed ?? 0, '',
+          {tab:'clients', filters:{'c-status':'confirmed'}}],
+        ['На проверке', c.pending ?? 0, '',
+          {tab:'clients', filters:{'c-status':'pending'}}],
+        ['Всего в базе', c.total ?? 0, '',
+          {tab:'clients', filters:{'c-status':''}}],
+        ['Белый список', c.whitelist ?? 0, '', null],
       ]],
       ['Оценки клиентов', [
-        ['Средняя оценка', n.count ? n.avg_score : '—', `всего оценок: ${n.count ?? 0}`],
-        ['Оценок за 30 дней', n.count_30d ?? 0, n.count_30d ? `средняя: ${n.avg_score_30d}` : ''],
-        ['Оставили отзыв', `${n.review_rate ?? 0}%`, `${n.reviews ?? 0} из ${n.count ?? 0}`],
+        ['Средняя оценка', n.count ? n.avg_score : '—', `всего оценок: ${n.count ?? 0}`,
+          {tab:'nps', filters:{}}],
+        ['Оценок за 30 дней', n.count_30d ?? 0, n.count_30d ? `средняя: ${n.avg_score_30d}` : '',
+          {tab:'nps', filters:{}}],
+        ['Оставили отзыв', `${n.review_rate ?? 0}%`, `${n.reviews ?? 0} из ${n.count ?? 0}`,
+          {tab:'nps', filters:{}}],
       ]],
     ];
     document.getElementById('kpi').innerHTML = groups.map(([label, tiles]) => `
       <div class="kpi-group">
         <div class="kpi-label">${esc(label)}</div>
-        <div class="tiles">${tiles.map(([name, value, sub]) => `
-          <div class="tile">
+        <div class="tiles">${tiles.map(([name, value, sub, drill]) => {
+          const clickable = drill
+            ? ` onclick='drillTo(${JSON.stringify(drill.tab)}, ${JSON.stringify(drill.filters)})' style="cursor:pointer" title="Открыть список"`
+            : '';
+          return `
+          <div class="tile"${clickable}>
             <b>${esc(value)}</b>
-            <span>${esc(name)}</span>
+            <span>${esc(name)}${drill ? ' <span class="muted" style="font-size:0.75em">→</span>' : ''}</span>
             ${sub ? `<span class="sub">${esc(sub)}</span>` : ''}
-          </div>`).join('')}
+          </div>`;
+        }).join('')}
         </div>
       </div>`).join('');
   }
@@ -1423,23 +1457,51 @@
 
   function renderChatsSummary(s){
     const box = document.getElementById('ch-summary');
+    // Каждый тайл раскрывается: клик применяет соответствующий фильтр
+    // waiting_hours к таблице ниже. Так админ сразу видит какие именно
+    // клиенты попадают в счётчик — не приходится гадать «откуда 12».
     const items = [
-      ['Всего активны', s.clients_total, 'клиентов писали за период', ''],
-      ['Ждут > 2 часов', s.waiting_2h, 'клиенту ещё не ответили', s.waiting_2h > 0 ? 'color:var(--danger)' : ''],
-      ['Ждут > 4 часов', s.waiting_4h, 'критично — юрист должен подойти', s.waiting_4h > 0 ? 'color:var(--danger)' : ''],
-      ['С ответом юриста', s.answered_last, 'последнее сообщение от юриста', 'color:var(--ok)'],
+      ['Всего активны', s.clients_total, 'клиентов писали за период', '', '0'],
+      ['Ждут > 2 часов', s.waiting_2h, 'клиенту ещё не ответили',
+        s.waiting_2h > 0 ? 'color:var(--danger)' : '', '2'],
+      ['Ждут > 4 часов', s.waiting_4h, 'критично — юрист должен подойти',
+        s.waiting_4h > 0 ? 'color:var(--danger)' : '', '4'],
+      ['С ответом юриста', s.answered_last, 'последнее сообщение от юриста',
+        'color:var(--ok)', 'answered'],
     ];
-    box.innerHTML = items.map(([label, val, sub, style]) => `
-      <div class="tile">
+    box.innerHTML = items.map(([label, val, sub, style, filter]) => `
+      <div class="tile" onclick="chDrill('${filter}')" style="cursor:pointer" title="Показать в списке">
         <b style="${style}">${val}</b>
-        <span>${chEsc(label)}</span>
+        <span>${chEsc(label)} <span class="muted" style="font-size:0.75em">→</span></span>
         <span class="sub">${chEsc(sub)}</span>
       </div>
     `).join('');
   }
 
+  // Клик по тайлу количества → применить фильтр к таблице чатов
+  // и проскроллить к ней. Для «С ответом юриста» отдельная логика —
+  // клиентский last_from='lawyer', backend такой фильтр не поддерживает,
+  // так что делаем клиентскую фильтрацию на месте.
+  window.chDrill = function(filter){
+    if (filter === 'answered') {
+      // Клиентская фильтрация после загрузки списка
+      window.__chClientFilter = 'answered';
+      document.getElementById('ch-waiting').value = '0';
+    } else {
+      window.__chClientFilter = null;
+      document.getElementById('ch-waiting').value = filter;
+    }
+    loadChats();
+    const table = document.querySelector('#p-chats table');
+    if (table) table.scrollIntoView({behavior:'smooth', block:'start'});
+  };
+
   function renderChatsRows(clients){
     const tb = document.getElementById('ch-rows');
+    // Клиентский фильтр от drill'а — «С ответом юриста».
+    if (window.__chClientFilter === 'answered') {
+      clients = clients.filter(c => c.last_from === 'lawyer');
+    }
     if(!clients.length){
       tb.innerHTML = '<tr><td colspan="5" class="empty">Ничего не найдено по фильтрам</td></tr>';
       return;
