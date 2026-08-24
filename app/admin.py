@@ -169,17 +169,21 @@ def admin_nps(
     limit: int = 50,
     offset: int = 0,
     group_by_client: bool = False,
+    include_inactive_managers: bool = False,
     _: str = Depends(get_admin),
 ):
     """Оценки клиентов вместе с менеджером и задачей контроля качества.
 
     kind: '' | low (0-6) | neutral (7-8) | top (9-10).
-    group_by_client=true: одна строка на клиента (средняя из его оценок),
-    иначе — все оценки подряд.
+    group_by_client=true: одна строка на клиента (средняя из его оценок).
+    include_inactive_managers=false: по умолчанию скрывает оценки чьих
+    менеджеров уволили (легитимные оценки, но в отчёте по действующим
+    сотрудникам не нужны).
     """
     return quality.list_scores(kind=kind, year_month=month,
                                limit=limit, offset=offset,
-                               group_by_client=group_by_client)
+                               group_by_client=group_by_client,
+                               include_inactive_managers=include_inactive_managers)
 
 
 @router.get("/api/nps/trend")
