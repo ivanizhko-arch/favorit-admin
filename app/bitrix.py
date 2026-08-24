@@ -107,6 +107,71 @@ def _contact_assignee(contact_id: int) -> int:
     return int((res or {}).get("ASSIGNED_BY_ID") or 0)
 
 
+_client_link_cache: dict[str, dict] = {}
+
+
+def client_bitrix_urls(email: str) -> dict:
+    """Прямые URL контакта и последней сделки клиента в Bitrix.
+
+    Возвращает:
+        {contact_url, deal_url, contact_id, deal_id, domain, found}
+        found=False если контакта нет в CRM (клиент только зашёл в
+        приложение, а сделку ему ещё не завели).
+
+    Строит РЕАЛЬНЫЕ URL по ID из CRM (не через query-фильтр, который в
+    разных версиях/шаблонах Bitrix работает по-разному). Кэшируется в
+    памяти процесса — контакт по email ищется один раз до рестарта.
+    """
+    if not email:
+        return {"contact_url": "", "deal_url": "", "contact_id": 0,
+                "deal_id": 0, "domain": settings.bitrix_domain, "found": False}
+    key = email.strip().lower()
+    if key in _client_link_cache:
+        return _client_link_cache[key]
+
+    result = {"contact_url": "", "deal_url": "", "contact_id": 0,
+              "deal_id": 0, "domain": settings.bitrix_domain, "found": False}
+    try:
+        contact_id = _find_contact_id(email)
+        if contact_id:
+            result["contact_id"] = contact_id
+            result["contact_url"] = (
+                f"https://{settings.bitrix_domain}/crm/contact/details/{contact_id}/"
+            )
+            result["found"] = True
+            # Ищем последнюю сделку в категории «Сопровождение» (15).
+            # Если такой нет — берём вообще последнюю сделку клиента.
+            deals = call("crm.deal.list", {
+                "filter": {"CONTACT_ID": contact_id, "CATEGORY_ID": 15},
+                "order": {"ID": "DESC"},
+                "select": ["ID"],
+            }) or []
+            if not deals:
+                deals = call("crm.deal.list", {
+                    "filter": {"CONTACT_ID": contact_id},
+                    "order": {"ID": "DESC"},
+                    "select": ["ID"],
+                }) or []
+            if deals:
+                deal_id = int(deals[0]["ID"])
+                result["deal_id"] = deal_id
+                result["deal_url"] = (
+                    f"https://{settings.bitrix_domain}"
+                    f"/crm/deal/details/{deal_id}/"
+                )
+    except Exception as e:  # noqa: BLE001
+        log.warning("client_bitrix_urls(%s) failed: %s", email, e)
+
+    _client_link_cache[key] = result
+    return result
+
+
+def clear_client_link_cache() -> None:
+    """Сбросить кэш ссылок клиентов в Bitrix. После сделки может
+    появиться — можно вручную сбросить чтобы обновить."""
+    _client_link_cache.clear()
+
+
 def user_info(user_id: int) -> dict:
     """Карточка сотрудника: имя, должность, уволен или нет, тип учётной записи.
 
