@@ -156,31 +156,33 @@ function mockFetch(url) {
                 qc_head_set: true, support_head_set: false,
                 bitrix_configured: true },
       managers: {
+        // Новая схема (2026-08-24): категории по стадиям + % отказов.
+        // Уволенные (Пётр) уже отфильтрованы backend'ом через
+        // bitrix.is_active_manager() — в managers их нет.
+        // hidden_inactive считает сколько скрыто.
         managers: [
           { manager_id: 102, manager_name: 'Борис Козлов', position: 'Менеджер',
-            deals: 2, refusals: 1, in_progress: 1, done: 0, manager_fault: 0,
-            reason_unknown: 1, refusal_rate: 50.0, active: true,
+            deals: 2, sbor_docs: 1, podany: 0, rd_real: 0, refusal_count: 1,
+            refusal_rate: 50.0, active: true,
             user_type: 'employee', is_employee: true },
           { manager_id: 200, manager_name: 'Робот <b>Фаворит</b>', position: '',
-            deals: 10, refusals: 7, in_progress: 0, done: 3, manager_fault: 0,
-            reason_unknown: 7, refusal_rate: 70.0, active: true,
+            deals: 10, sbor_docs: 2, podany: 1, rd_real: 0, refusal_count: 7,
+            refusal_rate: 70.0, active: true,
             user_type: 'bot', is_employee: false },
           { manager_id: 101, manager_name: 'Анна Смирнова',
             position: 'Менеджер сопровождения', deals: 8,
-            refusals: 2, in_progress: 4, done: 2, manager_fault: 1,
-            reason_unknown: 0, refusal_rate: 25.0, active: true,
-            user_type: 'employee', is_employee: true },
-          { manager_id: 201, manager_name: 'Пётр Уволенный', position: 'Менеджер',
-            deals: 4, refusals: 2, in_progress: 0, done: 2, manager_fault: 0,
-            reason_unknown: 2, refusal_rate: 50.0, active: false,
+            sbor_docs: 3, podany: 2, rd_real: 1, refusal_count: 2,
+            refusal_rate: 25.0, active: true,
             user_type: 'employee', is_employee: true },
           { manager_id: 105, manager_name: 'Иван Директоров', position: 'Директор',
-            deals: 3, refusals: 0, in_progress: 1, done: 2, manager_fault: 0,
-            reason_unknown: 0, refusal_rate: 0.0, active: true,
+            deals: 3, sbor_docs: 1, podany: 1, rd_real: 1, refusal_count: 0,
+            refusal_rate: 0.0, active: true,
             user_type: 'employee', is_employee: true },
         ],
-        positions: ['Директор', 'Менеджер', 'Менеджер сопровождения'],
-        totals: { deals: 15, refusals: 3, refusal_rate: 20.0, reason_unknown: 1 },
+        hidden_inactive: 1,  // Пётр Уволенный скрыт
+        positions: [],
+        totals: { deals: 23, sbor_docs: 7, podany: 4, rd_real: 2,
+                  refusal_count: 10, refusal_rate: 43.5 },
         reasons: { manager: 'Не устроил менеджер', price: 'Цена или нет денег',
                    changed_mind: 'Передумал банкротиться', other: 'Другое' },
         sources: { client: 'со слов клиента', qc: 'контроль качества',
@@ -523,75 +525,49 @@ vm.runInContext(code, ctx);
   console.log('\n== Отказы по менеджерам ==');
   await ctx.loadSupervision();
   const sv = els['sv-rows'].innerHTML;
-  check('показаны все пятеро, никто не скрыт',
-        (sv.match(/<tr>/g) || []).length === 5);
-  check('уволенный виден и помечен',
-        sv.includes('Пётр Уволенный') && sv.includes('>уволен<'));
-  check('робот виден и помечен',
-        sv.includes('Робот') && sv.includes('>не сотрудник<'));
+  // Новая схема (2026-08-24): 6 колонок вместо 8, уволенные скрыты backend'ом.
+  check('показаны 4 действующих менеджера (уволенный скрыт)',
+        (sv.match(/<tr>/g) || []).length === 4);
   check('доля отказов показана', sv.includes('50%') && sv.includes('25%'));
-  check('худшая доля первой', sv.indexOf('Борис') < sv.indexOf('Анна'), '');
+  check('худшая доля первой', sv.indexOf('Робот') < sv.indexOf('Анна'), '');
   check('высокая доля красным', sv.includes('var(--danger)'));
   check('нулевая доля зелёным', sv.includes('var(--ok)'));
-  check('колонка «из-за менеджера» отдельно', sv.includes('badge b-low">1<'), '');
   check('XSS в имени обезврежен', !sv.includes('<b>Фаворит'));
-  check('должность показана', sv.includes('Менеджер сопровождения'));
-  check('пустая должность не ломает строку', sv.includes('>—<'));
-  check('счётчик показанных', els['sv-shown'].innerHTML.includes('5</b> из 5'),
+  check('колонка «Сбор доков» присутствует', sv.match(/<td>\s*3\s*<\/td>/));  // у Анны 3
+  check('колонка «РД/Реализация» присутствует', sv.match(/<td>\s*1\s*<\/td>/));  // у Анны 1
+  check('счётчик показанных', els['sv-shown'].innerHTML.includes('4</b> из 4'),
         els['sv-shown'].innerHTML);
 
-  // Отбор делает пользователь, а не код — проверяем каждый фильтр.
+  // Оставшиеся фильтры: поиск, min-rate, min-deals.
   const rowsNow = () => (els['sv-rows'].innerHTML.match(/<tr>/g) || []).length;
 
-  els['sv-status'].value = 'active'; ctx.renderManagers();
-  check('фильтр «только действующие» убирает уволенного',
-        rowsNow() === 4 && !els['sv-rows'].innerHTML.includes('Пётр'));
-
-  els['sv-status'].value = 'inactive'; ctx.renderManagers();
-  check('фильтр «только уволенные» оставляет одного', rowsNow() === 1);
-
-  els['sv-status'].value = ''; els['sv-type'].value = 'employee';
+  els['sv-minrate'].value = '50';
   ctx.renderManagers();
-  check('фильтр «только сотрудники» убирает робота',
-        rowsNow() === 4 && !els['sv-rows'].innerHTML.includes('Робот'));
-
-  els['sv-type'].value = ''; els['sv-position'].value = 'Менеджер сопровождения';
-  ctx.renderManagers();
-  check('фильтр по должности', rowsNow() === 1);
-
-  els['sv-position'].value = '__none__'; ctx.renderManagers();
-  check('фильтр «без должности» находит робота',
-        rowsNow() === 1 && els['sv-rows'].innerHTML.includes('Робот'));
-
-  els['sv-position'].value = ''; els['sv-minrate'].value = '50';
-  ctx.renderManagers();
-  check('фильтр по доле отказов', rowsNow() === 3);
+  check('фильтр по доле отказов ≥50%', rowsNow() === 2);  // Робот 70, Борис 50
 
   els['sv-minrate'].value = '0'; els['sv-mindeals'].value = '10';
   ctx.renderManagers();
-  check('фильтр по числу дел отсекает мелочь', rowsNow() === 1);
+  check('фильтр по числу дел отсекает мелочь', rowsNow() === 1);  // только Робот с 10
 
   els['sv-mindeals'].value = '0'; els['sv-q'].value = 'директор';
   ctx.renderManagers();
-  check('поиск ищет и по должности', rowsNow() === 1);
+  check('поиск по имени', rowsNow() === 1);  // Иван Директоров
 
   els['sv-q'].value = 'нетакого'; ctx.renderManagers();
   check('пустой результат объяснён',
         els['sv-rows'].innerHTML.includes('Под фильтры никто не подходит'));
 
   ctx.resetManagerFilters();
-  check('сброс возвращает всех', rowsNow() === 5);
+  check('сброс возвращает всех действующих', rowsNow() === 4);
   check('итоги считаются по показанному',
-        els['sv-shown'].innerHTML.includes('27 дел'),
+        els['sv-shown'].innerHTML.includes('23 дел'),
         els['sv-shown'].innerHTML);
-  check('подпись объясняет, что доля от всех дел',
-        els['sv-note'].innerHTML.includes('от всех дел менеджера'));
-  check('подпись объясняет колонку вины',
-        els['sv-note'].innerHTML.includes('к его работе не относятся'));
-  check('предупреждение про руководителя сопровождения',
-        els['sv-warn'].innerHTML.includes('BITRIX_SUPPORT_HEAD_ID'));
-  check('предупреждение про невыясненные причины',
-        els['sv-warn'].innerHTML.includes('причина не выяснена'));
+  check('подпись объясняет что скрыты уволенные',
+        els['sv-note'].innerHTML.includes('только действующие менеджеры'));
+  check('подпись объясняет колонку «Сбор доков»',
+        els['sv-note'].innerHTML.includes('договор заключ'));
+  check('предупреждение про скрытых уволенных (когда есть)',
+        els['sv-warn'].innerHTML.includes('уволенных менеджеров'));
 
   await ctx.loadRefusals();
   const rf = els['rf-rows'].innerHTML;
