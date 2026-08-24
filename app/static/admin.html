@@ -1626,6 +1626,17 @@
     return `${Math.round(h/24)}д назад`;
   }
 
+  function chLawyerReasonLabel(r){
+    // Подсказка админу: что именно не так — сразу видно, что делать.
+    switch(r){
+      case 'not_in_crm':   return '— нет в CRM';
+      case 'no_deal':      return '— нет сделки';
+      case 'no_assignee':  return '— нет ответственного';
+      case 'bitrix_error': return '— ошибка CRM';
+      default:             return '— не назначен';
+    }
+  }
+
   function startChatsAutoRefresh(){
     if(chatsRefreshTimer) return;
     chatsRefreshTimer = setInterval(() => {
@@ -1725,7 +1736,7 @@
             <div class="muted mono" style="margin-top:2px">${chEsc(c.email)}</div>
             <div style="margin-top:6px">${badge}</div>
           </td>
-          <td>${chEsc(c.lawyer_name || '— не назначен')}</td>
+          <td>${chEsc(c.lawyer_name || chLawyerReasonLabel(c.lawyer_reason))}</td>
           <td style="max-width:340px;color:#c8ccd4;font-size:12.5px;line-height:1.5">${preview}</td>
           <td style="text-align:right">
             <div style="${hotStyle}">${chHotBadge(c.hours_since_last)}</div>

@@ -520,7 +520,30 @@ def admin_chats_list(
                 "ORDER BY id DESC LIMIT 1",
                 (email,),
             ).fetchone()
-            lawyer_name = lawyer_row["author_name"] if lawyer_row else ""
+            db_lawyer_name = (lawyer_row["author_name"] if lawyer_row else "").strip()
+            # Приоритет — актуальный ответственный из Bitrix. Раньше
+            # брали только из БД, поэтому у клиентов, которым юрист ещё
+            # не отвечал в приложении (только автоответы), куратор был
+            # пуст, хотя в CRM он назначен.
+            bx_lawyer_name = ""
+            lawyer_reason = ""
+            try:
+                info = bitrix.client_bitrix_urls(email)
+                bx_lawyer_name = (info.get("manager_name") or "").strip()
+                if not bx_lawyer_name:
+                    if not info.get("found"):
+                        lawyer_reason = "not_in_crm"
+                    elif not info.get("deal_id"):
+                        lawyer_reason = "no_deal"
+                    else:
+                        lawyer_reason = "no_assignee"
+            except Exception as e:  # noqa: BLE001
+                log.warning("chats: bitrix lookup %s failed: %s", email, e)
+                lawyer_reason = "bitrix_error"
+            lawyer_name = bx_lawyer_name or db_lawyer_name
+            # reason показываем только когда имени нет вообще
+            if lawyer_name:
+                lawyer_reason = ""
             # Колонка users.app_name — миграция из основного backend
             # (favorit_app), может ещё не примениться к общей БД. Пробуем
             # прочитать, при OperationalError падаем на просто name.
@@ -566,6 +589,7 @@ def admin_chats_list(
                 "email": email,
                 "client_name": client_name,
                 "lawyer_name": lawyer_name,
+                "lawyer_reason": lawyer_reason,
                 "last_at": last["created_at"],
                 "last_from": last_from,
                 "last_text": preview,
