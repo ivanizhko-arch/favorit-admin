@@ -864,15 +864,10 @@
         const blockBtn = u.blocked
           ? `<button class="btn-warn" onclick="block('${jsq(u.email)}',false)">Разблокировать</button>`
           : `<button class="btn-warn" onclick="block('${jsq(u.email)}',true)">Заблокировать</button>`;
-        // Bitrix: ссылка на список контактов CRM с фильтром по email.
-        // Клик открывает Bitrix в новой вкладке — юрист видит найденные
-        // контакты (у каждого — переход в сделки). Домен берётся из
-        // /api/stats (window.bitrixDomain — устанавливается при loadStats),
-        // не хардкодится: у портала с другим доменом ссылка не работала.
-        // URL /crm/contact/list/?apply_filter=Y&FILTER_EMAIL=xxx —
-        // стандартный фильтр Bitrix CRM, работает на любом портале.
-        const domain = window.bitrixDomain || 'favorit-consult.bitrix24.ru';
-        const bitrixSearch = `https://${domain}/crm/contact/list/?apply_filter=Y&FILTER_EMAIL=${encodeURIComponent(u.email)}`;
+        // Bitrix: ленивая загрузка прямого URL сделки/контакта клиента
+        // через /api/bitrix-link/{email}. НЕ строим query-фильтр URL
+        // (/crm/contact/list?FILTER_EMAIL=) — они дают 404 на некоторых
+        // порталах. Backend вызывает Bitrix API один раз (кэш в памяти).
         // Идентификатор клиента: если имени нет — показываем «Новый клиент»
         // + email, чтобы строка не выглядела «пустой».
         const nameLine = u.name
@@ -889,7 +884,7 @@
           <td>${phoneCell}</td>
           <td class="muted">${when(u.last_seen)}</td>
           <td>${badge}${consent}</td>
-          <td><a class="btn-ghost" href="${bitrixSearch}" target="_blank" rel="noopener" title="Открыть в Bitrix — поиск по email">↗ Открыть</a></td>
+          <td><button class="btn-ghost" onclick="openBitrixForClient('${jsq(u.email)}', this)" title="Открыть сделку клиента в Bitrix">↗ Открыть</button></td>
           <td><div class="row-actions">
             ${blockBtn}
             <button class="btn-ghost" onclick="reset('${jsq(u.email)}')">Сбросить сессию</button>
@@ -900,6 +895,32 @@
     }
     renderPager('users','u',data);
   }
+
+  // Открыть сделку/контакт клиента в Bitrix. Backend через
+  // crm.duplicate.findbycomm + crm.deal.list достаёт реальный ID
+  // и строит прямой URL. Если клиента ещё нет в CRM — говорим об этом.
+  window.openBitrixForClient = async function(email, btn){
+    const orig = btn ? btn.textContent : '';
+    if (btn) { btn.textContent = '⏳'; btn.disabled = true; }
+    try {
+      const r = await api('/bitrix-link/' + encodeURIComponent(email));
+      if (!r.found) {
+        alert('Клиент ' + email + ' не найден в Bitrix CRM.\n' +
+              'Возможно, ему ещё не создали карточку и сделку.');
+        return;
+      }
+      const url = r.deal_url || r.contact_url;
+      if (url) {
+        window.open(url, '_blank', 'noopener');
+      } else {
+        alert('URL не удалось построить. Проверьте что BITRIX_WEBHOOK_URL в .env настроен.');
+      }
+    } catch (e) {
+      alert('Ошибка запроса в Bitrix: ' + (e.message || e));
+    } finally {
+      if (btn) { btn.textContent = orig; btn.disabled = false; }
+    }
+  };
 
   async function block(email,blocked){
     await api('/users/'+encodeURIComponent(email)+'/block',
