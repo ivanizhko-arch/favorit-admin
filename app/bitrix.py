@@ -122,15 +122,16 @@ def client_bitrix_urls(email: str) -> dict:
     разных версиях/шаблонах Bitrix работает по-разному). Кэшируется в
     памяти процесса — контакт по email ищется один раз до рестарта.
     """
+    empty = {"contact_url": "", "deal_url": "", "contact_id": 0,
+             "deal_id": 0, "domain": settings.bitrix_domain, "found": False,
+             "phone": "", "manager_id": 0, "manager_name": ""}
     if not email:
-        return {"contact_url": "", "deal_url": "", "contact_id": 0,
-                "deal_id": 0, "domain": settings.bitrix_domain, "found": False}
+        return empty
     key = email.strip().lower()
     if key in _client_link_cache:
         return _client_link_cache[key]
 
-    result = {"contact_url": "", "deal_url": "", "contact_id": 0,
-              "deal_id": 0, "domain": settings.bitrix_domain, "found": False}
+    result = dict(empty)
     try:
         contact_id = _find_contact_id(email)
         if contact_id:
@@ -139,26 +140,48 @@ def client_bitrix_urls(email: str) -> dict:
                 f"https://{settings.bitrix_domain}/crm/contact/details/{contact_id}/"
             )
             result["found"] = True
+
+            # Получаем phone из карточки контакта — за один запрос
+            # берём сразу PHONE-массив (там объекты типа {VALUE, VALUE_TYPE}).
+            try:
+                contact = call("crm.contact.get", {"id": contact_id}) or {}
+                phones = contact.get("PHONE") or []
+                if phones and isinstance(phones, list):
+                    # Первый номер обычно основной. Берём VALUE.
+                    result["phone"] = str(phones[0].get("VALUE") or "").strip()
+            except Exception as e:  # noqa: BLE001
+                log.warning("contact.get(%s) failed: %s", contact_id, e)
+
             # Ищем последнюю сделку в категории «Сопровождение» (15).
             # Если такой нет — берём вообще последнюю сделку клиента.
+            # Заодно ASSIGNED_BY_ID — куратор.
             deals = call("crm.deal.list", {
                 "filter": {"CONTACT_ID": contact_id, "CATEGORY_ID": 15},
                 "order": {"ID": "DESC"},
-                "select": ["ID"],
+                "select": ["ID", "ASSIGNED_BY_ID"],
             }) or []
             if not deals:
                 deals = call("crm.deal.list", {
                     "filter": {"CONTACT_ID": contact_id},
                     "order": {"ID": "DESC"},
-                    "select": ["ID"],
+                    "select": ["ID", "ASSIGNED_BY_ID"],
                 }) or []
             if deals:
-                deal_id = int(deals[0]["ID"])
+                d0 = deals[0]
+                deal_id = int(d0["ID"])
                 result["deal_id"] = deal_id
                 result["deal_url"] = (
                     f"https://{settings.bitrix_domain}"
                     f"/crm/deal/details/{deal_id}/"
                 )
+                mgr_id = int(d0.get("ASSIGNED_BY_ID") or 0)
+                if mgr_id:
+                    result["manager_id"] = mgr_id
+                    try:
+                        info = user_info(mgr_id)
+                        result["manager_name"] = info.get("name", "")
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("user_info(%s) failed: %s", mgr_id, e)
     except Exception as e:  # noqa: BLE001
         log.warning("client_bitrix_urls(%s) failed: %s", email, e)
 

@@ -221,7 +221,7 @@
       <button class="btn-ghost" onclick="loadUsers()">Обновить</button>
     </div>
     <table>
-      <thead><tr><th>Пользователь</th><th>Телефон</th><th>Последний вход</th><th>Статус</th><th>Bitrix</th><th>Действия</th></tr></thead>
+      <thead><tr><th>Пользователь</th><th>Телефон</th><th>Куратор</th><th>Последний вход</th><th>Статус</th><th>Bitrix</th><th>Действия</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
     <div class="pager">
@@ -363,10 +363,14 @@
         <option value="neutral">Нейтральные</option>
         <option value="top">Лучшие</option>
       </select>
+      <select id="n-group" onchange="resetPage('nps');loadNps()" title="Группировать по клиенту (средняя оценка) или показывать каждую оценку отдельно">
+        <option value="1" selected>По клиентам (средняя)</option>
+        <option value="0">Все оценки подряд</option>
+      </select>
       <button class="btn-ghost" onclick="loadNps()">Обновить</button>
     </div>
-    <table>
-      <thead><tr><th>Клиент</th><th>Оценка</th><th>Менеджер</th><th>Контроль качества</th><th>Отзыв</th><th>Когда</th></tr></thead>
+    <table id="nps-table">
+      <thead id="nps-thead"><tr><th>Клиент</th><th>Средняя</th><th>Оценок</th><th>Последний менеджер</th><th>Последняя оценка</th></tr></thead>
       <tbody id="nps-rows"></tbody>
     </table>
     <div class="pager">
@@ -931,7 +935,7 @@
     const data = await api('/users?'+params);
     const rows = document.getElementById('rows');
     if(!data.items.length){
-      rows.innerHTML = `<tr><td colspan="6" class="empty">${
+      rows.innerHTML = `<tr><td colspan="7" class="empty">${
         data.total === 0 && !params.get('q') && !params.get('status_filter')
           ? 'Пока нет пользователей. Войдите в приложение под каким-нибудь e-mail — он появится здесь.'
           : 'Под фильтры никто не подходит.'}</td></tr>`;
@@ -955,12 +959,16 @@
         // Телефон: если пустой — не показываем «—», а показываем пустой
         // subtle-текст «не указан» без формата номера. Так меньше визуального
         // шума в строке и понятно что данных нет.
+        // Телефон и куратор: если в БД пусто — placeholder «...»,
+        // потом enrichUsersFromBitrix() догружает из CRM.
         const phoneCell = u.phone
           ? esc(u.phone)
-          : '<span class="muted"><i>не указан</i></span>';
+          : `<span class="muted bitrix-phone" data-email="${jsq(u.email)}">…</span>`;
+        const managerCell = `<span class="muted bitrix-manager" data-email="${jsq(u.email)}">…</span>`;
         return `<tr>
           <td>${nameLine}<div class="muted">${esc(u.email)}</div></td>
           <td>${phoneCell}</td>
+          <td>${managerCell}</td>
           <td class="muted">${when(u.last_seen)}</td>
           <td>${badge}${consent}</td>
           <td><button class="btn-ghost" onclick="openBitrixForClient('${jsq(u.email)}', this)" title="Открыть сделку клиента в Bitrix">↗ Открыть</button></td>
@@ -971,9 +979,56 @@
           </div></td>
         </tr>`;
       }).join('');
+      // Batch-обогащение из Bitrix — не блокирует отрисовку. Ячейки
+      // обновляются по мере получения ответа. При повторных загрузках
+      // почти мгновенно благодаря memory-кэшу bitrix.client_bitrix_urls.
+      enrichUsersFromBitrix(data.items.map(u => u.email));
     }
     renderPager('users','u',data);
   }
+
+  // Batch-обогащение видимой страницы Клиентов данными из Bitrix
+  // (телефон + куратор). Вызывается сразу после отрисовки таблицы,
+  // не блокирует UI. Backend обходит контакты в CRM и заполняет
+  // ячейки с data-email атрибутами.
+  window.enrichUsersFromBitrix = async function(emails){
+    if (!emails || !emails.length) return;
+    let data;
+    try {
+      data = await api('/users/enrich', {
+        method: 'POST',
+        body: JSON.stringify(emails),
+      });
+    } catch (e) {
+      // Тихо игнорим — placeholder «…» останется. Не рушим весь UI
+      // из-за медленного или недоступного Bitrix.
+      console.warn('enrichUsersFromBitrix failed:', e);
+      // Меняем «…» на «нет данных» для явности
+      document.querySelectorAll('.bitrix-phone, .bitrix-manager').forEach(el => {
+        if (el.textContent === '…') el.textContent = '—';
+      });
+      return;
+    }
+    for (const [email, info] of Object.entries(data)) {
+      const escEmail = email.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+      // Телефон — только если не был из БД (placeholder ещё «…»)
+      document.querySelectorAll(`.bitrix-phone[data-email="${escEmail}"]`).forEach(el => {
+        el.textContent = info.phone || '—';
+        if (info.phone) el.classList.remove('muted');
+      });
+      // Куратор
+      document.querySelectorAll(`.bitrix-manager[data-email="${escEmail}"]`).forEach(el => {
+        if (info.manager_name) {
+          el.textContent = info.manager_name;
+          el.classList.remove('muted');
+        } else if (info.found) {
+          el.innerHTML = '<i>не назначен</i>';
+        } else {
+          el.innerHTML = '<i>нет в CRM</i>';
+        }
+      });
+    }
+  };
 
   // Открыть сделку/контакт клиента в Bitrix. Backend через
   // crm.duplicate.findbycomm + crm.deal.list достаёт реальный ID
@@ -1106,27 +1161,55 @@
   }
 
   async function loadNps(){
+    const groupByClient = document.getElementById('n-group').value === '1';
     const params = new URLSearchParams({
       kind: document.getElementById('n-kind').value,
       limit: PAGE,
       offset: pages.nps * PAGE,
+      group_by_client: groupByClient ? 'true' : 'false',
     });
     const data = await api('/nps?'+params);
 
-    // Границы градации приходят с сервера: держать «0-6» в разметке значит
-    // однажды получить подпись, не совпадающую с настройкой.
     if(data.grades) applyGrades(data.grades);
 
+    const thead = document.getElementById('nps-thead');
     const t = document.getElementById('nps-rows');
-    if(!data.items.length){
-      t.innerHTML = `<tr><td colspan="6" class="empty">${
-        data.total === 0
-          ? `Пока нет оценок. Низкие (${esc((data.grades||{}).low_label||'')}) появятся здесь, как только основной сервис начнёт их сохранять.`
-          : 'Под фильтр ничего не подходит.'}</td></tr>`;
+
+    // Заголовок меняется от режима
+    if (groupByClient) {
+      thead.innerHTML = '<tr><th>Клиент</th><th>Средняя</th><th>Оценок</th><th>Последний менеджер</th><th>Последняя оценка</th></tr>';
     } else {
+      thead.innerHTML = '<tr><th>Клиент</th><th>Оценка</th><th>Менеджер</th><th>Контроль качества</th><th>Отзыв</th><th>Когда</th></tr>';
+    }
+
+    const colspan = groupByClient ? 5 : 6;
+    if(!data.items.length){
+      t.innerHTML = `<tr><td colspan="${colspan}" class="empty">${
+        data.total === 0
+          ? `Пока нет оценок. Появятся когда клиенты начнут оценивать.`
+          : 'Под фильтр ничего не подходит.'}</td></tr>`;
+    } else if (groupByClient) {
+      // Одна строка на клиента: средняя оценка + последний менеджер
       t.innerHTML = data.items.map(n => {
         const low = n.category === 'low';
-        // Менеджер пуст, пока воркер не сходил в Битрикс за ответственным.
+        const manager = n.manager_name
+          ? esc(n.manager_name)
+          : (n.manager_id ? 'ID '+esc(n.manager_id)
+                          : '<span class="muted">не определён</span>');
+        return `<tr class="${low ? 'row-low' : ''}">
+          <td>${esc(n.email)}</td>
+          <td><span class="badge ${SCORE_BADGE[n.category]||'b-neutral'}">${esc(n.avg_score)}/10</span></td>
+          <td class="muted">${esc(n.count)} ${n.count === 1 ? 'оценка' : 'оценок'}
+            ${n.count > 1 ? `<div style="font-size:11px">от ${esc(n.min_score)} до ${esc(n.max_score)}</div>` : ''}
+          </td>
+          <td>${manager}</td>
+          <td class="muted">${when(n.last_at)}</td>
+        </tr>`;
+      }).join('');
+    } else {
+      // Плоский режим: каждая оценка отдельно
+      t.innerHTML = data.items.map(n => {
+        const low = n.category === 'low';
         const manager = n.manager_name
           ? esc(n.manager_name)
           : (n.manager_id ? 'ID '+esc(n.manager_id)
