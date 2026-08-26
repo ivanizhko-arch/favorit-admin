@@ -332,6 +332,26 @@
         <h3 id="ch-modal-title" style="color:var(--gold);font-size:17px;margin-bottom:4px">Чат</h3>
         <div id="ch-modal-sub" class="muted" style="font-size:12px;margin-bottom:20px"></div>
         <div id="ch-modal-body"></div>
+        <!-- Ответ клиенту от супервизора. Сообщение уйдёт в приложение
+             клиента и в open-line-чат Bitrix (юрист сопровождения увидит). -->
+        <div id="ch-reply-form" style="margin-top:18px;padding-top:16px;border-top:1px solid var(--line)">
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+            <label class="muted" style="font-size:12px">Отвечаю от имени:</label>
+            <select id="ch-reply-author" style="padding:6px 10px;border-radius:6px;background:var(--ink);color:#e8ebf1;border:1px solid var(--line);font-size:12px">
+              <option value="Иван Ижко">Иван Ижко</option>
+              <option value="Костромина Ксения Александровна">Ксения Костромина</option>
+            </select>
+          </div>
+          <textarea id="ch-reply-text" placeholder="Ваш ответ клиенту…" rows="3"
+            style="width:100%;padding:10px 12px;border-radius:8px;background:var(--ink);color:#e8ebf1;border:1px solid var(--line);font-size:13px;font-family:inherit;resize:vertical;min-height:64px"></textarea>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+            <span id="ch-reply-status" class="muted" style="font-size:11.5px"></span>
+            <button id="ch-reply-btn" onclick="sendSupervisorReply()"
+              style="background:var(--gold);color:#000;padding:8px 20px;border-radius:8px;font-weight:600;font-size:13px;border:0;cursor:pointer">
+              Отправить
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1760,18 +1780,83 @@
     }
   }
 
+  // Текущий email открытого чата — нужен для sendSupervisorReply.
+  let currentChatEmail = '';
+
   async function openChatModal(email, name){
+    currentChatEmail = email;
     const modal = document.getElementById('ch-modal');
     document.getElementById('ch-modal-title').textContent = name;
     document.getElementById('ch-modal-sub').textContent = email;
     const body = document.getElementById('ch-modal-body');
     body.innerHTML = '<div class="empty">Загружаем историю…</div>';
+    // Восстанавливаем последнего выбранного автора (Иван/Ксения)
+    const savedAuthor = localStorage.getItem('supervisorReplyAuthor');
+    if(savedAuthor){
+      const sel = document.getElementById('ch-reply-author');
+      if(sel) sel.value = savedAuthor;
+    }
+    document.getElementById('ch-reply-text').value = '';
+    document.getElementById('ch-reply-status').textContent = '';
     modal.classList.remove('hidden');
     try{
       const j = await api('/chats/' + encodeURIComponent(email) + '?limit=300');
       renderChatModal(j.messages);
     }catch(e){
       body.innerHTML = `<div class="empty" style="color:var(--danger)">Ошибка: ${chEsc(e.message)}</div>`;
+    }
+  }
+
+  // Отправка ответа супервизора клиенту. Уходит через /api/admin/chat/reply
+  // на favorit-app :8000 (не через favorit-admin :8001 — там нет открытых
+  // линий Bitrix). Проксирование делает nginx.
+  async function sendSupervisorReply(){
+    const text = (document.getElementById('ch-reply-text').value || '').trim();
+    if(!text || !currentChatEmail) return;
+    const author = document.getElementById('ch-reply-author').value || 'Куратор';
+    localStorage.setItem('supervisorReplyAuthor', author);
+    const btn = document.getElementById('ch-reply-btn');
+    const status = document.getElementById('ch-reply-status');
+    // Пароль админки favorit-app — тот же что для этой страницы
+    // (используется общий admin_password в .env).
+    const pw = sessionStorage.getItem('favorit_admin_pw')
+             || localStorage.getItem('favorit_admin_pw')
+             || prompt('Пароль админ-панели (main backend):');
+    if(!pw){ return; }
+    btn.disabled = true;
+    status.textContent = 'Отправка…';
+    status.style.color = 'var(--muted)';
+    try{
+      const fd = new FormData();
+      fd.set('password', pw);
+      fd.set('email', currentChatEmail);
+      fd.set('text', text);
+      fd.set('supervisor_name', author);
+      const res = await fetch('/api/admin/chat/reply', {method:'POST', body: fd});
+      if(res.status === 403){
+        sessionStorage.removeItem('favorit_admin_pw');
+        localStorage.removeItem('favorit_admin_pw');
+        throw new Error('Неверный пароль admin_password');
+      }
+      const j = await res.json();
+      if(!res.ok || !j.ok) throw new Error(j.detail || j.error || 'Ошибка');
+      sessionStorage.setItem('favorit_admin_pw', pw);
+      localStorage.setItem('favorit_admin_pw', pw);
+      // Успех — очистим текст, покажем статус, перезагрузим историю
+      document.getElementById('ch-reply-text').value = '';
+      const bxOk = j.bitrix_ok ? 'клиент + Bitrix' : 'только клиент (Bitrix chat_id не найден)';
+      status.textContent = 'Отправлено: ' + bxOk;
+      status.style.color = 'var(--ok)';
+      // Перезагрузим историю чтобы наше сообщение появилось в списке
+      try{
+        const jHist = await api('/chats/' + encodeURIComponent(currentChatEmail) + '?limit=300');
+        renderChatModal(jHist.messages);
+      }catch(_){}
+    }catch(e){
+      status.textContent = 'Ошибка: ' + e.message;
+      status.style.color = 'var(--danger)';
+    }finally{
+      btn.disabled = false;
     }
   }
 
