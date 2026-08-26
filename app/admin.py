@@ -621,16 +621,32 @@ def admin_chats_list(
 
 @router.get("/api/chats/{email}")
 def admin_chat_history(email: str, limit: int = 300, _: str = Depends(get_admin)):
-    """Полная переписка с одним клиентом — раскрывается в модалке."""
+    """Полная переписка с одним клиентом — раскрывается в модалке.
+    reply_to_* — цитата сообщения на которое отвечали (для rich-preview)."""
+    # reply_to колонки могут отсутствовать в очень старой миграции —
+    # оборачиваем в try, fallback на минимальный набор полей.
     with db._conn() as c:
-        rows = c.execute(
-            "SELECT id, created_at, incoming, kind, author_name, text, "
-            "is_file, file_url, file_name FROM chat_messages "
-            "WHERE email = ? ORDER BY id DESC LIMIT ?",
-            (email.lower(), int(limit)),
-        ).fetchall()
-    messages = [
-        {
+        try:
+            rows = c.execute(
+                "SELECT id, created_at, incoming, kind, author_name, text, "
+                "is_file, file_url, file_name, "
+                "reply_to_id, reply_to_text, reply_to_author "
+                "FROM chat_messages "
+                "WHERE email = ? ORDER BY id DESC LIMIT ?",
+                (email.lower(), int(limit)),
+            ).fetchall()
+            has_reply = True
+        except Exception:
+            rows = c.execute(
+                "SELECT id, created_at, incoming, kind, author_name, text, "
+                "is_file, file_url, file_name FROM chat_messages "
+                "WHERE email = ? ORDER BY id DESC LIMIT ?",
+                (email.lower(), int(limit)),
+            ).fetchall()
+            has_reply = False
+    messages = []
+    for r in rows:
+        item = {
             "id": r["id"],
             "at": r["created_at"],
             "from": "lawyer" if r["incoming"] else "client",
@@ -641,8 +657,11 @@ def admin_chat_history(email: str, limit: int = 300, _: str = Depends(get_admin)
             "file_url": r["file_url"] or "",
             "file_name": r["file_name"] or "",
         }
-        for r in rows
-    ]
+        if has_reply:
+            item["reply_to_id"] = int(r["reply_to_id"] or 0)
+            item["reply_to_text"] = r["reply_to_text"] or ""
+            item["reply_to_author"] = r["reply_to_author"] or ""
+        messages.append(item)
     return {"email": email, "messages": list(reversed(messages))}
 
 

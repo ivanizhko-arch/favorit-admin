@@ -332,20 +332,36 @@
         <h3 id="ch-modal-title" style="color:var(--gold);font-size:17px;margin-bottom:4px">Чат</h3>
         <div id="ch-modal-sub" class="muted" style="font-size:12px;margin-bottom:20px"></div>
         <div id="ch-modal-body"></div>
-        <!-- Ответ клиенту от супервизора. Сообщение уйдёт в приложение
-             клиента и в open-line-чат Bitrix (юрист сопровождения увидит). -->
+        <!-- Ответ клиенту. Сообщение уйдёт в приложение клиента и в
+             open-line-чат Bitrix (юрист сопровождения увидит). -->
         <div id="ch-reply-form" style="margin-top:18px;padding-top:16px;border-top:1px solid var(--line)">
-          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-            <label class="muted" style="font-size:12px">Отвечаю от имени:</label>
-            <select id="ch-reply-author" style="padding:6px 10px;border-radius:6px;background:var(--ink);color:#e8ebf1;border:1px solid var(--line);font-size:12px">
-              <option value="Иван Ижко">Иван Ижко</option>
-              <option value="Костромина Ксения Александровна">Ксения Костромина</option>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+            <label class="muted" style="font-size:12px">От имени:</label>
+            <select id="ch-reply-author" style="padding:6px 10px;border-radius:6px;background:var(--ink);color:#e8ebf1;border:1px solid var(--line);font-size:12px;min-width:220px">
+              <option value="Иван Ижко">Иван Ижко (загрузка…)</option>
             </select>
+          </div>
+          <!-- Цитата reply-to (появляется когда пользователь нажал «Ответить» на конкретное сообщение) -->
+          <div id="ch-reply-quote" style="display:none;margin-bottom:8px;padding:8px 12px;background:rgba(215,174,94,0.08);border-left:3px solid var(--gold);border-radius:6px;font-size:12px;color:#c8ccd4">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+              <span class="muted" style="font-size:10.5px">↩ Отвечаю на:</span>
+              <button onclick="cancelReplyTo()" style="background:transparent;color:var(--muted);font-size:14px;padding:0 4px;border-radius:4px;line-height:1">×</button>
+            </div>
+            <div id="ch-reply-quote-author" style="font-weight:600;color:var(--gold);font-size:11.5px"></div>
+            <div id="ch-reply-quote-text" style="font-style:italic;opacity:.8"></div>
           </div>
           <textarea id="ch-reply-text" placeholder="Ваш ответ клиенту…" rows="3"
             style="width:100%;padding:10px 12px;border-radius:8px;background:var(--ink);color:#e8ebf1;border:1px solid var(--line);font-size:13px;font-family:inherit;resize:vertical;min-height:64px"></textarea>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-            <span id="ch-reply-status" class="muted" style="font-size:11.5px"></span>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;gap:8px;flex-wrap:wrap">
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="file" id="ch-reply-file" style="display:none" onchange="onSupervisorFileSelected(event)">
+              <button onclick="document.getElementById('ch-reply-file').click()"
+                style="background:transparent;color:var(--muted);border:1px solid var(--line);padding:8px 14px;border-radius:8px;font-size:12px;cursor:pointer"
+                title="Прикрепить файл">
+                📎 Файл
+              </button>
+              <span id="ch-reply-status" class="muted" style="font-size:11.5px"></span>
+            </div>
             <button id="ch-reply-btn" onclick="sendSupervisorReply()"
               style="background:var(--gold);color:#000;padding:8px 20px;border-radius:8px;font-weight:600;font-size:13px;border:0;cursor:pointer">
               Отправить
@@ -1782,20 +1798,83 @@
 
   // Текущий email открытого чата — нужен для sendSupervisorReply.
   let currentChatEmail = '';
+  // Reply-to state: id и данные сообщения на которое пользователь
+  // нажал «Ответить». null если ответ обычный (без цитаты).
+  let currentReplyTo = null;
+  // Кэш авторов для дропдауна (список из /admin/chat/authors)
+  let cachedAuthorsHtml = '';
+
+  // Загрузка списка авторов из /admin/chat/authors (одноразово,
+  // после успешного вызова кэшируется в localStorage на час).
+  async function loadReplyAuthors(force){
+    const cached = !force && localStorage.getItem('supervisorAuthorsHtml');
+    const cachedTs = parseInt(localStorage.getItem('supervisorAuthorsTs') || '0', 10);
+    if(cached && (Date.now() - cachedTs) < 3600000){
+      cachedAuthorsHtml = cached;
+      applyAuthorsToSelect();
+      return;
+    }
+    const pw = sessionStorage.getItem('favorit_admin_pw')
+             || localStorage.getItem('favorit_admin_pw');
+    if(!pw) return; // пароль ещё не введён — оставляем placeholder
+    try{
+      const fd = new FormData();
+      fd.set('password', pw);
+      const res = await fetch('/api/admin/chat/authors', {method:'POST', body: fd});
+      if(!res.ok) return;
+      const j = await res.json();
+      const list = (j.authors || []);
+      // Группируем: сначала супервизоры, потом юристы
+      const groups = {supervisor:[], lawyer:[]};
+      for(const a of list){
+        (groups[a.role] || groups.lawyer).push(a);
+      }
+      let html = '';
+      if(groups.supervisor.length){
+        html += '<optgroup label="Супервизоры">';
+        for(const a of groups.supervisor){
+          html += `<option value="${chEsc(a.name)}">${chEsc(a.name)}</option>`;
+        }
+        html += '</optgroup>';
+      }
+      if(groups.lawyer.length){
+        html += '<optgroup label="Юристы">';
+        for(const a of groups.lawyer){
+          html += `<option value="${chEsc(a.name)}">${chEsc(a.name)}</option>`;
+        }
+        html += '</optgroup>';
+      }
+      cachedAuthorsHtml = html || '<option value="Куратор">Куратор</option>';
+      localStorage.setItem('supervisorAuthorsHtml', cachedAuthorsHtml);
+      localStorage.setItem('supervisorAuthorsTs', String(Date.now()));
+      applyAuthorsToSelect();
+    }catch(_){}
+  }
+
+  function applyAuthorsToSelect(){
+    const sel = document.getElementById('ch-reply-author');
+    if(!sel || !cachedAuthorsHtml) return;
+    const savedAuthor = localStorage.getItem('supervisorReplyAuthor') || 'Иван Ижко';
+    sel.innerHTML = cachedAuthorsHtml;
+    sel.value = savedAuthor;
+    // Если saved не нашёлся — выставим первое
+    if(sel.value !== savedAuthor && sel.options.length){
+      sel.value = sel.options[0].value;
+    }
+  }
 
   async function openChatModal(email, name){
     currentChatEmail = email;
+    currentReplyTo = null;
+    hideReplyQuote();
     const modal = document.getElementById('ch-modal');
     document.getElementById('ch-modal-title').textContent = name;
     document.getElementById('ch-modal-sub').textContent = email;
     const body = document.getElementById('ch-modal-body');
     body.innerHTML = '<div class="empty">Загружаем историю…</div>';
-    // Восстанавливаем последнего выбранного автора (Иван/Ксения)
-    const savedAuthor = localStorage.getItem('supervisorReplyAuthor');
-    if(savedAuthor){
-      const sel = document.getElementById('ch-reply-author');
-      if(sel) sel.value = savedAuthor;
-    }
+    // Загружаем/применяем авторов и восстанавливаем выбор
+    await loadReplyAuthors();
+    applyAuthorsToSelect();
     document.getElementById('ch-reply-text').value = '';
     document.getElementById('ch-reply-status').textContent = '';
     modal.classList.remove('hidden');
@@ -1807,9 +1886,66 @@
     }
   }
 
-  // Отправка ответа супервизора клиенту. Уходит через /api/admin/chat/reply
-  // на favorit-app :8000 (не через favorit-admin :8001 — там нет открытых
-  // линий Bitrix). Проксирование делает nginx.
+  // Кэш последней загруженной истории — чтобы обрабатывать клики по
+  // сообщениям (Копировать/Ответить) не гоняя запрос заново.
+  let lastRenderedMessages = [];
+
+  function setReplyTo(msgId){
+    const m = lastRenderedMessages.find(x => x.id === msgId);
+    if(!m) return;
+    currentReplyTo = m;
+    const q = document.getElementById('ch-reply-quote');
+    document.getElementById('ch-reply-quote-author').textContent =
+      m.from === 'client' ? 'Клиент' : (m.author || 'Юрист');
+    document.getElementById('ch-reply-quote-text').textContent =
+      (m.is_file ? ('📎 ' + (m.file_name || 'файл')) : (m.text || '')).slice(0, 200);
+    q.style.display = 'block';
+    document.getElementById('ch-reply-text').focus();
+  }
+
+  function cancelReplyTo(){
+    currentReplyTo = null;
+    hideReplyQuote();
+  }
+
+  function hideReplyQuote(){
+    const q = document.getElementById('ch-reply-quote');
+    if(q) q.style.display = 'none';
+  }
+
+  function copyMessageText(msgId){
+    const m = lastRenderedMessages.find(x => x.id === msgId);
+    if(!m) return;
+    const t = m.is_file ? (m.file_url || m.file_name) : (m.text || '');
+    try{
+      navigator.clipboard.writeText(t);
+      const status = document.getElementById('ch-reply-status');
+      status.textContent = 'Скопировано';
+      status.style.color = 'var(--ok)';
+      setTimeout(() => { if(status.textContent === 'Скопировано') status.textContent = ''; }, 1500);
+    }catch(_){}
+  }
+
+  // Экспорт функций в window — вызываются из inline onclick в HTML сообщений.
+  window.setReplyTo = setReplyTo;
+  window.cancelReplyTo = cancelReplyTo;
+  window.copyMessageText = copyMessageText;
+
+  // Общий getter пароля админ-панели (favorit-app admin_password)
+  function getAdminPassword(promptIfMissing){
+    let pw = sessionStorage.getItem('favorit_admin_pw')
+           || localStorage.getItem('favorit_admin_pw');
+    if(!pw && promptIfMissing){
+      pw = prompt('Пароль админ-панели (main backend):');
+      if(pw){
+        sessionStorage.setItem('favorit_admin_pw', pw);
+        localStorage.setItem('favorit_admin_pw', pw);
+      }
+    }
+    return pw || '';
+  }
+
+  // Отправка текстового ответа супервизора клиенту.
   async function sendSupervisorReply(){
     const text = (document.getElementById('ch-reply-text').value || '').trim();
     if(!text || !currentChatEmail) return;
@@ -1817,12 +1953,8 @@
     localStorage.setItem('supervisorReplyAuthor', author);
     const btn = document.getElementById('ch-reply-btn');
     const status = document.getElementById('ch-reply-status');
-    // Пароль админки favorit-app — тот же что для этой страницы
-    // (используется общий admin_password в .env).
-    const pw = sessionStorage.getItem('favorit_admin_pw')
-             || localStorage.getItem('favorit_admin_pw')
-             || prompt('Пароль админ-панели (main backend):');
-    if(!pw){ return; }
+    const pw = getAdminPassword(true);
+    if(!pw) return;
     btn.disabled = true;
     status.textContent = 'Отправка…';
     status.style.color = 'var(--muted)';
@@ -1832,6 +1964,7 @@
       fd.set('email', currentChatEmail);
       fd.set('text', text);
       fd.set('supervisor_name', author);
+      fd.set('reply_to_id', String(currentReplyTo ? currentReplyTo.id : 0));
       const res = await fetch('/api/admin/chat/reply', {method:'POST', body: fd});
       if(res.status === 403){
         sessionStorage.removeItem('favorit_admin_pw');
@@ -1840,14 +1973,14 @@
       }
       const j = await res.json();
       if(!res.ok || !j.ok) throw new Error(j.detail || j.error || 'Ошибка');
-      sessionStorage.setItem('favorit_admin_pw', pw);
-      localStorage.setItem('favorit_admin_pw', pw);
-      // Успех — очистим текст, покажем статус, перезагрузим историю
       document.getElementById('ch-reply-text').value = '';
+      cancelReplyTo();
       const bxOk = j.bitrix_ok ? 'клиент + Bitrix' : 'только клиент (Bitrix chat_id не найден)';
       status.textContent = 'Отправлено: ' + bxOk;
       status.style.color = 'var(--ok)';
-      // Перезагрузим историю чтобы наше сообщение появилось в списке
+      // Загрузим авторов заново (может появился новый юрист) — но
+      // не блокируя UI, из кэша если уже загружены
+      loadReplyAuthors();
       try{
         const jHist = await api('/chats/' + encodeURIComponent(currentChatEmail) + '?limit=300');
         renderChatModal(jHist.messages);
@@ -1860,7 +1993,56 @@
     }
   }
 
+  // Отправка файла супервизора клиенту.
+  async function onSupervisorFileSelected(ev){
+    const file = ev.target.files && ev.target.files[0];
+    ev.target.value = ''; // сбрасываем input для повторного выбора того же файла
+    if(!file || !currentChatEmail) return;
+    // Простой лимит на клиенте — 20 МБ (за большими файлами не гоняемся)
+    if(file.size > 20 * 1024 * 1024){
+      const status = document.getElementById('ch-reply-status');
+      status.textContent = 'Файл больше 20 МБ — не отправлен';
+      status.style.color = 'var(--danger)';
+      return;
+    }
+    const author = document.getElementById('ch-reply-author').value || 'Куратор';
+    localStorage.setItem('supervisorReplyAuthor', author);
+    const status = document.getElementById('ch-reply-status');
+    const pw = getAdminPassword(true);
+    if(!pw) return;
+    status.textContent = `Загружаем ${file.name} (${Math.round(file.size/1024)} KB)…`;
+    status.style.color = 'var(--muted)';
+    try{
+      const fd = new FormData();
+      fd.set('password', pw);
+      fd.set('email', currentChatEmail);
+      fd.set('supervisor_name', author);
+      fd.set('reply_to_id', String(currentReplyTo ? currentReplyTo.id : 0));
+      fd.set('file', file);
+      const res = await fetch('/api/admin/chat/upload', {method:'POST', body: fd});
+      if(res.status === 403){
+        sessionStorage.removeItem('favorit_admin_pw');
+        localStorage.removeItem('favorit_admin_pw');
+        throw new Error('Неверный пароль admin_password');
+      }
+      const j = await res.json();
+      if(!res.ok || !j.ok) throw new Error(j.detail || j.error || 'Ошибка');
+      cancelReplyTo();
+      const bxOk = j.bitrix_ok ? 'клиент + Bitrix' : 'только клиент';
+      status.textContent = 'Файл отправлен: ' + bxOk;
+      status.style.color = 'var(--ok)';
+      try{
+        const jHist = await api('/chats/' + encodeURIComponent(currentChatEmail) + '?limit=300');
+        renderChatModal(jHist.messages);
+      }catch(_){}
+    }catch(e){
+      status.textContent = 'Ошибка: ' + e.message;
+      status.style.color = 'var(--danger)';
+    }
+  }
+
   function renderChatModal(messages){
+    lastRenderedMessages = messages || [];
     const body = document.getElementById('ch-modal-body');
     if(!messages.length){
       body.innerHTML = '<div class="empty">Переписка пуста.</div>';
@@ -1878,14 +2060,39 @@
       const bodyHtml = m.is_file && m.file_url
         ? `<a href="${chEsc(m.file_url)}" target="_blank" style="color:var(--gold);font-weight:600;text-decoration:none">📎 ${chEsc(m.file_name || 'файл')}</a>`
         : chEsc(m.text);
+      // Цитата reply-to (если есть)
+      let quoteBlock = '';
+      if(m.reply_to_id){
+        const qa = chEsc(m.reply_to_author || '');
+        const qt = chEsc((m.reply_to_text || '').slice(0, 120));
+        if(qa || qt){
+          quoteBlock = `<div style="margin-bottom:6px;padding:6px 8px;background:rgba(255,255,255,0.04);border-left:2px solid var(--muted);border-radius:4px;font-size:11.5px;color:#a8adb8"><b style="color:var(--gold);font-size:10.5px">↩ ${qa}</b><br>${qt}</div>`;
+        }
+      }
+      // Меню действий: 📋 копировать, ↩ ответить. Появляется на hover.
+      const actions = `
+        <div class="msg-actions" style="position:absolute;top:6px;right:8px;display:none;gap:4px;background:rgba(0,0,0,0.4);border-radius:6px;padding:2px 4px">
+          <button onclick="copyMessageText(${m.id})" title="Копировать текст" style="background:transparent;border:0;color:#c8ccd4;font-size:13px;padding:2px 6px;cursor:pointer;border-radius:4px">📋</button>
+          <button onclick="setReplyTo(${m.id})" title="Ответить" style="background:transparent;border:0;color:#c8ccd4;font-size:13px;padding:2px 6px;cursor:pointer;border-radius:4px">↩</button>
+        </div>
+      `;
       return `
-        <div style="background:${bgColor};border:1px solid ${borderColor};border-radius:10px;padding:10px 12px;margin:6px 0;max-width:85%;${align};font-size:13px;line-height:1.4">
+        <div class="msg-row" style="position:relative;background:${bgColor};border:1px solid ${borderColor};border-radius:10px;padding:10px 12px;margin:6px 0;max-width:85%;${align};font-size:13px;line-height:1.4">
           <div style="font-size:10.5px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px">${who}</div>
+          ${quoteBlock}
           ${bodyHtml}
           <div style="font-size:10.5px;color:var(--muted);margin-top:4px;text-align:right">${chFormatTime(m.at)}</div>
+          ${actions}
         </div>
       `;
     }).join('');
+    // Активируем hover-показ action-меню
+    body.querySelectorAll('.msg-row').forEach(row => {
+      const actions = row.querySelector('.msg-actions');
+      if(!actions) return;
+      row.addEventListener('mouseenter', () => { actions.style.display = 'flex'; });
+      row.addEventListener('mouseleave', () => { actions.style.display = 'none'; });
+    });
   }
 
   checkAuthConfig();
