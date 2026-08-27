@@ -332,6 +332,15 @@
         <h3 id="ch-modal-title" style="color:var(--gold);font-size:17px;margin-bottom:4px">Чат</h3>
         <div id="ch-modal-sub" class="muted" style="font-size:12px;margin-bottom:20px"></div>
         <div id="ch-modal-body"></div>
+        <!-- Контекстное меню сообщения (правый клик) — Telegram-style -->
+        <div id="msg-ctx-menu" style="display:none;position:fixed;z-index:300;background:var(--ink2);border:1px solid var(--line);border-radius:8px;padding:4px 0;min-width:180px;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-size:13px">
+          <div id="ctx-reply" class="ctx-item" onclick="ctxReply()" style="padding:8px 14px;cursor:pointer;color:#e8ebf1">↩&nbsp;&nbsp;Ответить</div>
+          <div id="ctx-copy" class="ctx-item" onclick="ctxCopy()" style="padding:8px 14px;cursor:pointer;color:#e8ebf1">📋&nbsp;&nbsp;Копировать текст</div>
+          <div id="ctx-edit" class="ctx-item" onclick="ctxEdit()" style="padding:8px 14px;cursor:pointer;color:#e8ebf1">✎&nbsp;&nbsp;Изменить</div>
+          <div id="ctx-delete" class="ctx-item" onclick="ctxDelete()" style="padding:8px 14px;cursor:pointer;color:var(--danger)">🗑&nbsp;&nbsp;Удалить</div>
+          <div id="ctx-forward" class="ctx-item" onclick="ctxForward()" style="padding:8px 14px;cursor:pointer;color:#e8ebf1">↪&nbsp;&nbsp;Переслать</div>
+        </div>
+        <style>.ctx-item:hover{background:rgba(215,174,94,0.12)}</style>
         <!-- Ответ клиенту. Сообщение уйдёт в приложение клиента и в
              open-line-чат Bitrix (юрист сопровождения увидит). -->
         <div id="ch-reply-form" style="margin-top:18px;padding-top:16px;border-top:1px solid var(--line)">
@@ -2096,31 +2105,180 @@
           quoteBlock = `<div style="margin-bottom:6px;padding:6px 8px;background:rgba(255,255,255,0.04);border-left:2px solid var(--muted);border-radius:4px;font-size:11.5px;color:#a8adb8"><b style="color:var(--gold);font-size:10.5px">↩ ${qa}</b><br>${qt}</div>`;
         }
       }
-      // Меню действий: 📋 копировать, ↩ ответить. Появляется на hover.
-      const actions = `
-        <div class="msg-actions" style="position:absolute;top:6px;right:8px;display:none;gap:4px;background:rgba(0,0,0,0.4);border-radius:6px;padding:2px 4px">
-          <button onclick="copyMessageText(${m.id})" title="Копировать текст" style="background:transparent;border:0;color:#c8ccd4;font-size:13px;padding:2px 6px;cursor:pointer;border-radius:4px">📋</button>
-          <button onclick="setReplyTo(${m.id})" title="Ответить" style="background:transparent;border:0;color:#c8ccd4;font-size:13px;padding:2px 6px;cursor:pointer;border-radius:4px">↩</button>
-        </div>
-      `;
       return `
-        <div class="msg-row" style="position:relative;background:${bgColor};border:1px solid ${borderColor};border-radius:10px;padding:10px 12px;margin:6px 0;max-width:85%;${align};font-size:13px;line-height:1.4">
+        <div class="msg-row" data-msg-id="${m.id}" style="position:relative;background:${bgColor};border:1px solid ${borderColor};border-radius:10px;padding:10px 12px;margin:6px 0;max-width:85%;${align};font-size:13px;line-height:1.4;cursor:context-menu">
           <div style="font-size:10.5px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px">${who}</div>
           ${quoteBlock}
-          ${bodyHtml}
+          <div class="msg-body-text">${bodyHtml}</div>
           <div style="font-size:10.5px;color:var(--muted);margin-top:4px;text-align:right">${chFormatTime(m.at)}</div>
-          ${actions}
         </div>
       `;
     }).join('');
-    // Активируем hover-показ action-меню
+    // Активируем правый клик для контекстного меню (Telegram-style).
     body.querySelectorAll('.msg-row').forEach(row => {
-      const actions = row.querySelector('.msg-actions');
-      if(!actions) return;
-      row.addEventListener('mouseenter', () => { actions.style.display = 'flex'; });
-      row.addEventListener('mouseleave', () => { actions.style.display = 'none'; });
+      row.addEventListener('contextmenu', (ev) => {
+        ev.preventDefault();
+        const msgId = parseInt(row.dataset.msgId || '0', 10);
+        openContextMenu(msgId, ev.clientX, ev.clientY);
+      });
     });
   }
+
+  // === Контекстное меню сообщения ===
+  let ctxMsgId = null;
+
+  function openContextMenu(msgId, x, y){
+    ctxMsgId = msgId;
+    const menu = document.getElementById('msg-ctx-menu');
+    const m = lastRenderedMessages.find(x => x.id === msgId);
+    // Edit/Delete показываем только для сообщений от юриста/супервизора,
+    // не от клиента. Клиентские сообщения править нельзя.
+    const isLawyer = m && m.from === 'lawyer';
+    document.getElementById('ctx-edit').style.display = isLawyer ? 'block' : 'none';
+    document.getElementById('ctx-delete').style.display = isLawyer ? 'block' : 'none';
+    // Позиционирование с учётом краёв окна
+    menu.style.display = 'block';
+    const rect = menu.getBoundingClientRect();
+    const menuW = rect.width || 200;
+    const menuH = rect.height || 180;
+    const maxX = window.innerWidth - menuW - 10;
+    const maxY = window.innerHeight - menuH - 10;
+    menu.style.left = Math.min(x, maxX) + 'px';
+    menu.style.top = Math.min(y, maxY) + 'px';
+  }
+
+  function closeContextMenu(){
+    document.getElementById('msg-ctx-menu').style.display = 'none';
+    ctxMsgId = null;
+  }
+
+  // Клик вне меню или Escape — закрывает
+  document.addEventListener('click', (e) => {
+    const menu = document.getElementById('msg-ctx-menu');
+    if(menu && menu.style.display === 'block' && !menu.contains(e.target)){
+      closeContextMenu();
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if(e.key === 'Escape') closeContextMenu();
+  });
+
+  function ctxReply(){
+    const id = ctxMsgId; closeContextMenu();
+    if(id) setReplyTo(id);
+  }
+  function ctxCopy(){
+    const id = ctxMsgId; closeContextMenu();
+    if(id) copyMessageText(id);
+  }
+  async function ctxEdit(){
+    const id = ctxMsgId; closeContextMenu();
+    if(!id) return;
+    const m = lastRenderedMessages.find(x => x.id === id);
+    if(!m || m.from !== 'lawyer') return;
+    const newText = prompt('Изменить текст сообщения:', m.text || '');
+    if(newText === null || !newText.trim() || newText.trim() === (m.text || '').trim()) return;
+    const pw = getAdminPassword(true);
+    if(!pw) return;
+    const status = document.getElementById('ch-reply-status');
+    status.textContent = 'Сохранение…'; status.style.color = 'var(--muted)';
+    try{
+      const fd = new FormData();
+      fd.set('password', pw);
+      fd.set('message_id', String(id));
+      fd.set('new_text', newText.trim());
+      const res = await fetch('/api/admin/chat/edit', {method:'POST', body: fd});
+      if(res.status === 403){
+        sessionStorage.removeItem('favorit_admin_pw');
+        localStorage.removeItem('favorit_admin_pw');
+        throw new Error('Неверный пароль');
+      }
+      const j = await res.json();
+      if(!res.ok || !j.ok) throw new Error(j.detail || j.error || 'Ошибка');
+      status.textContent = 'Изменено' + (j.bitrix_ok ? ' (клиент + Bitrix)' : ' (только клиент)');
+      status.style.color = 'var(--ok)';
+      const jHist = await api('/chats/' + encodeURIComponent(currentChatEmail) + '?limit=300');
+      renderChatModal(jHist.messages);
+    }catch(e){
+      status.textContent = 'Ошибка: ' + e.message;
+      status.style.color = 'var(--danger)';
+    }
+  }
+  async function ctxDelete(){
+    const id = ctxMsgId; closeContextMenu();
+    if(!id) return;
+    const m = lastRenderedMessages.find(x => x.id === id);
+    if(!m || m.from !== 'lawyer') return;
+    if(!confirm('Удалить это сообщение?\n\nОно исчезнет и у клиента в приложении, и в Bitrix.')) return;
+    const pw = getAdminPassword(true);
+    if(!pw) return;
+    const status = document.getElementById('ch-reply-status');
+    status.textContent = 'Удаление…'; status.style.color = 'var(--muted)';
+    try{
+      const fd = new FormData();
+      fd.set('password', pw);
+      fd.set('message_id', String(id));
+      const res = await fetch('/api/admin/chat/delete', {method:'POST', body: fd});
+      if(res.status === 403){
+        sessionStorage.removeItem('favorit_admin_pw');
+        localStorage.removeItem('favorit_admin_pw');
+        throw new Error('Неверный пароль');
+      }
+      const j = await res.json();
+      if(!res.ok || !j.ok) throw new Error(j.detail || j.error || 'Ошибка');
+      status.textContent = 'Удалено' + (j.bitrix_ok ? ' (клиент + Bitrix)' : ' (только клиент)');
+      status.style.color = 'var(--ok)';
+      const jHist = await api('/chats/' + encodeURIComponent(currentChatEmail) + '?limit=300');
+      renderChatModal(jHist.messages);
+    }catch(e){
+      status.textContent = 'Ошибка: ' + e.message;
+      status.style.color = 'var(--danger)';
+    }
+  }
+  async function ctxForward(){
+    const id = ctxMsgId; closeContextMenu();
+    if(!id) return;
+    const m = lastRenderedMessages.find(x => x.id === id);
+    if(!m) return;
+    const targetEmail = prompt('Email клиента для пересылки:');
+    if(!targetEmail || !targetEmail.trim()) return;
+    const author = document.getElementById('ch-reply-author').value || 'Куратор';
+    const fromWho = m.from === 'client' ? 'клиента' : (m.author || 'юриста');
+    const originalText = m.is_file ? ('📎 ' + (m.file_name || 'файл')) : (m.text || '');
+    const forwardText = `↪ Переслано от ${fromWho}:\n\n${originalText}`;
+    const pw = getAdminPassword(true);
+    if(!pw) return;
+    const status = document.getElementById('ch-reply-status');
+    status.textContent = 'Пересылка…'; status.style.color = 'var(--muted)';
+    try{
+      const fd = new FormData();
+      fd.set('password', pw);
+      fd.set('email', targetEmail.trim().toLowerCase());
+      fd.set('text', forwardText);
+      fd.set('supervisor_name', author);
+      const res = await fetch('/api/admin/chat/reply', {method:'POST', body: fd});
+      if(res.status === 403){
+        sessionStorage.removeItem('favorit_admin_pw');
+        localStorage.removeItem('favorit_admin_pw');
+        throw new Error('Неверный пароль');
+      }
+      const j = await res.json();
+      if(!res.ok || !j.ok) throw new Error(j.detail || j.error || 'Ошибка');
+      status.textContent = `Переслано в ${targetEmail}`;
+      status.style.color = 'var(--ok)';
+    }catch(e){
+      status.textContent = 'Ошибка: ' + e.message;
+      status.style.color = 'var(--danger)';
+    }
+  }
+
+  window.openContextMenu = openContextMenu;
+  window.closeContextMenu = closeContextMenu;
+  window.ctxReply = ctxReply;
+  window.ctxCopy = ctxCopy;
+  window.ctxEdit = ctxEdit;
+  window.ctxDelete = ctxDelete;
+  window.ctxForward = ctxForward;
 
   checkAuthConfig();
   if(token) showDash();
