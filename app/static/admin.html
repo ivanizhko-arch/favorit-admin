@@ -338,7 +338,10 @@
           <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
             <label class="muted" style="font-size:12px">От имени:</label>
             <select id="ch-reply-author" style="padding:6px 10px;border-radius:6px;background:var(--ink);color:#e8ebf1;border:1px solid var(--line);font-size:12px;min-width:220px">
-              <option value="Иван Ижко">Иван Ижко (загрузка…)</option>
+              <optgroup label="Супервизоры">
+                <option value="Иван Ижко">Иван Ижко</option>
+                <option value="Костромина Ксения Александровна">Ксения Костромина</option>
+              </optgroup>
             </select>
           </div>
           <!-- Цитата reply-to (появляется когда пользователь нажал «Ответить» на конкретное сообщение) -->
@@ -1804,27 +1807,47 @@
   // Кэш авторов для дропдауна (список из /admin/chat/authors)
   let cachedAuthorsHtml = '';
 
+  // Fallback список — только супервизоры. Используется когда нет пароля
+  // (первое открытие модалки до первой отправки) или endpoint /authors
+  // недоступен. Как только пароль появится → загрузится полный список.
+  const FALLBACK_AUTHORS_HTML =
+    '<optgroup label="Супервизоры">' +
+    '<option value="Иван Ижко">Иван Ижко</option>' +
+    '<option value="Костромина Ксения Александровна">Ксения Костромина</option>' +
+    '</optgroup>';
+
   // Загрузка списка авторов из /admin/chat/authors (одноразово,
   // после успешного вызова кэшируется в localStorage на час).
   async function loadReplyAuthors(force){
-    const cached = !force && localStorage.getItem('supervisorAuthorsHtml');
-    const cachedTs = parseInt(localStorage.getItem('supervisorAuthorsTs') || '0', 10);
-    if(cached && (Date.now() - cachedTs) < 3600000){
-      cachedAuthorsHtml = cached;
+    // Кэш свежий → применяем сразу
+    if(!force){
+      const cached = localStorage.getItem('supervisorAuthorsHtml');
+      const cachedTs = parseInt(localStorage.getItem('supervisorAuthorsTs') || '0', 10);
+      if(cached && (Date.now() - cachedTs) < 3600000){
+        cachedAuthorsHtml = cached;
+        applyAuthorsToSelect();
+        return;
+      }
+    }
+    // Всегда сначала выставим fallback (Иван + Ксения), чтобы дропдаун
+    // не оставался пустым, а пользователь мог сразу выбрать супервизора.
+    if(!cachedAuthorsHtml){
+      cachedAuthorsHtml = FALLBACK_AUTHORS_HTML;
       applyAuthorsToSelect();
-      return;
     }
     const pw = sessionStorage.getItem('favorit_admin_pw')
              || localStorage.getItem('favorit_admin_pw');
-    if(!pw) return; // пароль ещё не введён — оставляем placeholder
+    if(!pw) return; // без пароля /authors вернёт 403 — оставим fallback
     try{
       const fd = new FormData();
       fd.set('password', pw);
       const res = await fetch('/api/admin/chat/authors', {method:'POST', body: fd});
-      if(!res.ok) return;
+      if(!res.ok){
+        console.warn('loadReplyAuthors:', res.status);
+        return;
+      }
       const j = await res.json();
       const list = (j.authors || []);
-      // Группируем: сначала супервизоры, потом юристы
       const groups = {supervisor:[], lawyer:[]};
       for(const a of list){
         (groups[a.role] || groups.lawyer).push(a);
@@ -1844,11 +1867,15 @@
         }
         html += '</optgroup>';
       }
-      cachedAuthorsHtml = html || '<option value="Куратор">Куратор</option>';
-      localStorage.setItem('supervisorAuthorsHtml', cachedAuthorsHtml);
-      localStorage.setItem('supervisorAuthorsTs', String(Date.now()));
-      applyAuthorsToSelect();
-    }catch(_){}
+      if(html){
+        cachedAuthorsHtml = html;
+        localStorage.setItem('supervisorAuthorsHtml', cachedAuthorsHtml);
+        localStorage.setItem('supervisorAuthorsTs', String(Date.now()));
+        applyAuthorsToSelect();
+      }
+    }catch(e){
+      console.warn('loadReplyAuthors error:', e);
+    }
   }
 
   function applyAuthorsToSelect(){
