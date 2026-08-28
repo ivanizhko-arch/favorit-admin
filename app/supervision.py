@@ -635,11 +635,22 @@ def _reply_hours_by_manager_name() -> dict:
     При сообщении клиента (incoming=0) — запоминаем время. При следующем
     сообщении юриста (incoming=1) — считаем дельту и относим к имени юриста.
     Если клиент отправил несколько сообщений подряд — считаем от первого."""
+    # no_reply_needed колонка может отсутствовать в старой схеме —
+    # fallback на минимальный SELECT.
     with _conn() as c:
-        msgs = c.execute(
-            "SELECT email, incoming, author_name, created_at "
-            "FROM chat_messages ORDER BY email, id"
-        ).fetchall()
+        try:
+            msgs = c.execute(
+                "SELECT email, incoming, author_name, created_at, "
+                "COALESCE(no_reply_needed, 0) AS no_reply_needed "
+                "FROM chat_messages ORDER BY email, id"
+            ).fetchall()
+            has_no_reply = True
+        except Exception:  # noqa: BLE001
+            msgs = c.execute(
+                "SELECT email, incoming, author_name, created_at "
+                "FROM chat_messages ORDER BY email, id"
+            ).fetchall()
+            has_no_reply = False
 
     times_by_name: dict[str, list[float]] = {}
     current_client_at: dict[str, datetime] = {}  # email → время первого pending клиентского сообщения
@@ -650,8 +661,11 @@ def _reply_hours_by_manager_name() -> dict:
         if not created_at:
             continue
         if int(m["incoming"] or 0) == 0:  # клиент написал
-            # Помним самое раннее ожидающее ответа — если клиент шлёт
-            # серию сообщений подряд, считаем от первого.
+            # Помним самое раннее ожидающее ответа. Пропускаем короткие
+            # acknowledge (спасибо/ок/👍) — на такие ответ не требуется,
+            # не должны портить средее время ответа.
+            if has_no_reply and int(m["no_reply_needed"] or 0) == 1:
+                continue
             if email not in current_client_at:
                 current_client_at[email] = created_at
         else:  # юрист ответил

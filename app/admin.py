@@ -508,12 +508,25 @@ def admin_chats_list(
         now = datetime.now(timezone.utc)
         for r in rows:
             email = r["email"]
-            last = c.execute(
-                "SELECT created_at, incoming, kind, author_name, "
-                "substr(text, 1, 120) txt, is_file, file_name "
-                "FROM chat_messages WHERE id = ?",
-                (r["last_id"],),
-            ).fetchone()
+            # no_reply_needed — миграция в favorit-app могла ещё не
+            # примениться к общей БД. try/except с fallback.
+            try:
+                last = c.execute(
+                    "SELECT created_at, incoming, kind, author_name, "
+                    "substr(text, 1, 120) txt, is_file, file_name, "
+                    "no_reply_needed "
+                    "FROM chat_messages WHERE id = ?",
+                    (r["last_id"],),
+                ).fetchone()
+                has_no_reply = True
+            except Exception:
+                last = c.execute(
+                    "SELECT created_at, incoming, kind, author_name, "
+                    "substr(text, 1, 120) txt, is_file, file_name "
+                    "FROM chat_messages WHERE id = ?",
+                    (r["last_id"],),
+                ).fetchone()
+                has_no_reply = False
             lawyer_row = c.execute(
                 "SELECT author_name FROM chat_messages "
                 "WHERE email = ? AND incoming = 1 AND author_name != '' "
@@ -578,7 +591,16 @@ def admin_chats_list(
             except Exception:
                 hours_since = 0
 
-            waiting = last_from == "client" and hours_since > 0
+            # «Ждёт» = последний писал клиент, прошло > 0 ч.
+            # Исключаем случаи когда последнее сообщение = короткий
+            # acknowledge (спасибо/ок/👍 — no_reply_needed=1).
+            no_reply_last = False
+            if has_no_reply:
+                try:
+                    no_reply_last = bool(last["no_reply_needed"] or 0)
+                except Exception:  # noqa: BLE001
+                    pass
+            waiting = last_from == "client" and hours_since > 0 and not no_reply_last
             preview = last["txt"] or ""
             if last["is_file"] and last["file_name"]:
                 preview = f"📎 {last['file_name']}"
@@ -623,19 +645,20 @@ def admin_chats_list(
 def admin_chat_history(email: str, limit: int = 300, _: str = Depends(get_admin)):
     """Полная переписка с одним клиентом — раскрывается в модалке.
     reply_to_* — цитата сообщения на которое отвечали (для rich-preview)."""
-    # reply_to колонки могут отсутствовать в очень старой миграции —
-    # оборачиваем в try, fallback на минимальный набор полей.
+    # reply_to и no_reply_needed колонки могут отсутствовать в старой
+    # миграции — оборачиваем в try, fallback на минимальный набор.
     with db._conn() as c:
         try:
             rows = c.execute(
                 "SELECT id, created_at, incoming, kind, author_name, text, "
                 "is_file, file_url, file_name, "
-                "reply_to_id, reply_to_text, reply_to_author "
+                "reply_to_id, reply_to_text, reply_to_author, "
+                "no_reply_needed "
                 "FROM chat_messages "
                 "WHERE email = ? ORDER BY id DESC LIMIT ?",
                 (email.lower(), int(limit)),
             ).fetchall()
-            has_reply = True
+            has_extra = True
         except Exception:
             rows = c.execute(
                 "SELECT id, created_at, incoming, kind, author_name, text, "
@@ -643,7 +666,7 @@ def admin_chat_history(email: str, limit: int = 300, _: str = Depends(get_admin)
                 "WHERE email = ? ORDER BY id DESC LIMIT ?",
                 (email.lower(), int(limit)),
             ).fetchall()
-            has_reply = False
+            has_extra = False
     messages = []
     for r in rows:
         item = {
@@ -657,10 +680,11 @@ def admin_chat_history(email: str, limit: int = 300, _: str = Depends(get_admin)
             "file_url": r["file_url"] or "",
             "file_name": r["file_name"] or "",
         }
-        if has_reply:
+        if has_extra:
             item["reply_to_id"] = int(r["reply_to_id"] or 0)
             item["reply_to_text"] = r["reply_to_text"] or ""
             item["reply_to_author"] = r["reply_to_author"] or ""
+            item["no_reply_needed"] = bool(r["no_reply_needed"] or 0)
         messages.append(item)
     return {"email": email, "messages": list(reversed(messages))}
 

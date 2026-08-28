@@ -339,6 +339,8 @@
           <div id="ctx-edit" class="ctx-item" onclick="ctxEdit()" style="padding:8px 14px;cursor:pointer;color:#e8ebf1">✎&nbsp;&nbsp;Изменить</div>
           <div id="ctx-delete" class="ctx-item" onclick="ctxDelete()" style="padding:8px 14px;cursor:pointer;color:var(--danger)">🗑&nbsp;&nbsp;Удалить</div>
           <div id="ctx-forward" class="ctx-item" onclick="ctxForward()" style="padding:8px 14px;cursor:pointer;color:#e8ebf1">↪&nbsp;&nbsp;Переслать</div>
+          <div id="ctx-mark-noreply" class="ctx-item" onclick="ctxMarkNoReply()" style="padding:8px 14px;cursor:pointer;color:var(--ok)">✓&nbsp;&nbsp;Не требует ответа</div>
+          <div id="ctx-unmark-noreply" class="ctx-item" onclick="ctxUnmarkNoReply()" style="padding:8px 14px;cursor:pointer;color:var(--muted)">✕&nbsp;&nbsp;Требует ответа</div>
         </div>
         <style>.ctx-item:hover{background:rgba(215,174,94,0.12)}</style>
         <!-- Ответ клиенту. Сообщение уйдёт в приложение клиента и в
@@ -2105,12 +2107,21 @@
           quoteBlock = `<div style="margin-bottom:6px;padding:6px 8px;background:rgba(255,255,255,0.04);border-left:2px solid var(--muted);border-radius:4px;font-size:11.5px;color:#a8adb8"><b style="color:var(--gold);font-size:10.5px">↩ ${qa}</b><br>${qt}</div>`;
         }
       }
+      // Метка ✓ в правом верхнем углу — сообщение не требует ответа.
+      // Только для клиентских (для юриста флаг всё равно 0).
+      const noReplyBadge = (m.no_reply_needed && m.from === 'client')
+        ? `<div title="Не требует ответа" style="position:absolute;top:6px;right:8px;background:rgba(75,189,134,0.25);color:var(--ok);font-size:11px;font-weight:700;padding:2px 6px;border-radius:6px;line-height:1">✓</div>`
+        : '';
+      // Если no_reply_needed=1 — приглушаем визуально, чтобы админ
+      // сразу видел «это уже пройдено, не надо реагировать».
+      const dimStyle = (m.no_reply_needed && m.from === 'client') ? 'opacity:0.65;' : '';
       return `
-        <div class="msg-row" data-msg-id="${m.id}" style="position:relative;background:${bgColor};border:1px solid ${borderColor};border-radius:10px;padding:10px 12px;margin:6px 0;max-width:85%;${align};font-size:13px;line-height:1.4;cursor:context-menu">
+        <div class="msg-row" data-msg-id="${m.id}" style="position:relative;background:${bgColor};border:1px solid ${borderColor};border-radius:10px;padding:10px 12px;margin:6px 0;max-width:85%;${align};font-size:13px;line-height:1.4;cursor:context-menu;${dimStyle}">
           <div style="font-size:10.5px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px">${who}</div>
           ${quoteBlock}
           <div class="msg-body-text">${bodyHtml}</div>
           <div style="font-size:10.5px;color:var(--muted);margin-top:4px;text-align:right">${chFormatTime(m.at)}</div>
+          ${noReplyBadge}
         </div>
       `;
     }).join('');
@@ -2136,6 +2147,14 @@
     const isLawyer = m && m.from === 'lawyer';
     document.getElementById('ctx-edit').style.display = isLawyer ? 'block' : 'none';
     document.getElementById('ctx-delete').style.display = isLawyer ? 'block' : 'none';
+    // «Не требует ответа» / «Требует ответа» — только для клиентских,
+    // и показываем обратный вариант в зависимости от текущего состояния.
+    const isClient = m && m.from === 'client';
+    const alreadyNoReply = m && m.no_reply_needed;
+    document.getElementById('ctx-mark-noreply').style.display =
+      (isClient && !alreadyNoReply) ? 'block' : 'none';
+    document.getElementById('ctx-unmark-noreply').style.display =
+      (isClient && alreadyNoReply) ? 'block' : 'none';
     // Позиционирование с учётом краёв окна
     menu.style.display = 'block';
     const rect = menu.getBoundingClientRect();
@@ -2272,6 +2291,63 @@
     }
   }
 
+  async function _sendNoReplyToggle(msgId, noReply){
+    const pw = getAdminPassword(true);
+    if(!pw) return false;
+    try{
+      const fd = new FormData();
+      fd.set('password', pw);
+      fd.set('email', currentChatEmail);
+      fd.set('message_id', String(msgId));
+      fd.set('no_reply', noReply ? '1' : '0');
+      const res = await fetch('/api/admin/chat/mark-no-reply', {method:'POST', body: fd});
+      if(res.status === 403){
+        sessionStorage.removeItem('favorit_admin_pw');
+        localStorage.removeItem('favorit_admin_pw');
+        throw new Error('Неверный пароль');
+      }
+      const j = await res.json();
+      if(!res.ok || !j.ok) throw new Error(j.detail || j.error || 'Ошибка');
+      return true;
+    }catch(e){
+      const status = document.getElementById('ch-reply-status');
+      status.textContent = 'Ошибка: ' + e.message;
+      status.style.color = 'var(--danger)';
+      return false;
+    }
+  }
+
+  async function ctxMarkNoReply(){
+    const id = ctxMsgId; closeContextMenu();
+    if(!id) return;
+    const ok = await _sendNoReplyToggle(id, true);
+    if(ok){
+      const status = document.getElementById('ch-reply-status');
+      status.textContent = '✓ Помечено как «не требует ответа»';
+      status.style.color = 'var(--ok)';
+      // Перезагрузим историю чтобы обновилась метка
+      try{
+        const jHist = await api('/chats/' + encodeURIComponent(currentChatEmail) + '?limit=300');
+        renderChatModal(jHist.messages);
+      }catch(_){}
+    }
+  }
+
+  async function ctxUnmarkNoReply(){
+    const id = ctxMsgId; closeContextMenu();
+    if(!id) return;
+    const ok = await _sendNoReplyToggle(id, false);
+    if(ok){
+      const status = document.getElementById('ch-reply-status');
+      status.textContent = 'Метка снята — клиент снова считается ждущим';
+      status.style.color = 'var(--gold)';
+      try{
+        const jHist = await api('/chats/' + encodeURIComponent(currentChatEmail) + '?limit=300');
+        renderChatModal(jHist.messages);
+      }catch(_){}
+    }
+  }
+
   window.openContextMenu = openContextMenu;
   window.closeContextMenu = closeContextMenu;
   window.ctxReply = ctxReply;
@@ -2279,6 +2355,8 @@
   window.ctxEdit = ctxEdit;
   window.ctxDelete = ctxDelete;
   window.ctxForward = ctxForward;
+  window.ctxMarkNoReply = ctxMarkNoReply;
+  window.ctxUnmarkNoReply = ctxUnmarkNoReply;
 
   checkAuthConfig();
   if(token) showDash();
