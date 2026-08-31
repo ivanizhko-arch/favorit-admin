@@ -434,7 +434,10 @@
     <div class="section-title" id="s-refusals">📉 Отказы по менеджерам</div>
     <div id="sv-warn"></div>
     <div class="filters">
-      <input class="grow" id="sv-q" placeholder="Поиск: фамилия менеджера" oninput="renderManagers()">
+      <input class="grow" id="sv-q" list="sv-mgr-list"
+        placeholder="Поиск: фамилия менеджера (клик — весь список)"
+        oninput="renderManagers()" onchange="onSvManagerPicked()">
+      <datalist id="sv-mgr-list"></datalist>
       <select id="sv-minrate" onchange="renderManagers()">
         <option value="0">Любая доля отказов</option>
         <option value="20">Доля от 20%</option>
@@ -1303,6 +1306,17 @@
   let svManagers = [];
 
   function renderManagers(){
+    // Заполним datalist для выпадающего списка (нативный combobox).
+    // Клиент при клике в поле поиска сразу видит всех менеджеров,
+    // при вводе — фильтруется браузером автоматически.
+    const dl = document.getElementById('sv-mgr-list');
+    if(dl && svManagers.length && dl.dataset.filled !== '1'){
+      dl.innerHTML = svManagers
+        .map(x => `<option value="${esc(x.manager_name)}"></option>`)
+        .join('');
+      dl.dataset.filled = '1';
+    }
+
     const q = document.getElementById('sv-q').value.trim().toLowerCase();
     const minRate = parseFloat(document.getElementById('sv-minrate').value) || 0;
     const minDeals = parseInt(document.getElementById('sv-mindeals').value, 10) || 0;
@@ -1352,6 +1366,46 @@
     document.getElementById('sv-mindeals').value = '0';
     renderManagers();
   }
+
+  // Пользователь выбрал ФИО из datalist (или ввёл его точно).
+  // Если ФИО совпадает с одним из svManagers — автоматически:
+  //   1. Ставим фильтры «Любая доля» / «Любое число дел» (сбрасываем)
+  //   2. Устанавливаем manager_id в селект «Причины отказов» ниже
+  //   3. Загружаем отказы этого менеджера
+  //   4. Скроллим к таблице rf-rows
+  // Это даёт drill-down: клик менеджер → сразу видишь его отказы.
+  function onSvManagerPicked(){
+    const val = (document.getElementById('sv-q').value || '').trim();
+    if(!val) return;
+    // Ищем менеджера по точному ФИО (регистронезависимо)
+    const found = svManagers.find(x =>
+      x.manager_name.toLowerCase() === val.toLowerCase()
+    );
+    if(!found) return; // введено что-то не из списка — не трогаем нижний блок
+    // Сбрасываем ограничивающие фильтры сверху — чтобы клиент увидел
+    // ВСЕ дела/отказы выбранного менеджера, а не отфильтрованные
+    document.getElementById('sv-minrate').value = '0';
+    document.getElementById('sv-mindeals').value = '0';
+    renderManagers();
+    // Устанавливаем менеджера в блок «Причины отказов» и загружаем
+    const rfSel = document.getElementById('rf-manager');
+    if(rfSel){
+      rfSel.value = String(found.manager_id);
+      // Сбросим reason и unknown_only чтобы показать ВСЕ отказы этого менеджера
+      const rsSel = document.getElementById('rf-reason');
+      if(rsSel) rsSel.value = '';
+      const unkChk = document.getElementById('rf-unknown');
+      if(unkChk) unkChk.checked = false;
+      pages.rf = 0;
+      loadRefusals();
+    }
+    // Плавный скролл к таблице отказов
+    const tgt = document.getElementById('rf-rows');
+    if(tgt){
+      tgt.scrollIntoView({behavior: 'smooth', block: 'start'});
+    }
+  }
+  window.onSvManagerPicked = onSvManagerPicked;
 
   async function loadSupervision(){
     const d = await api('/supervision');
