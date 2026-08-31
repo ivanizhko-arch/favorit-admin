@@ -177,11 +177,12 @@
       <thead><tr>
         <th>Менеджер</th>
         <th style="text-align:right" title="Сколько активных дел на менеджере (work + stuck)">Дел в работе</th>
+        <th style="text-align:right" title="Сколько раз менеджер отвечал клиентам в чате приложения (incoming=1)">Ответов в чате</th>
         <th style="text-align:right" title="Среднее время от сообщения клиента до ответа менеджера в чате приложения">Ср. время ответа</th>
         <th style="text-align:right" title="Средняя оценка NPS от клиентов">NPS</th>
         <th style="text-align:right" title="Количество жалоб на менеджера">Жалоб</th>
       </tr></thead>
-      <tbody id="mm-rows"><tr><td colspan="5" class="empty">Загружаем...</td></tr></tbody>
+      <tbody id="mm-rows"><tr><td colspan="6" class="empty">Загружаем...</td></tr></tbody>
     </table>
     <p class="muted" id="mm-note" style="margin-top:10px"></p>
 
@@ -783,13 +784,19 @@
 
     // Средний срок дела целиком — главная цифра, поэтому отдельными плитками.
     const done = ov.done;
+    const doneC = ov.done_from_contract || {enough:false, avg_days:null, count:0};
     document.getElementById('st-overall').innerHTML = `
       <div class="kpi-group"><div class="tiles">
         <div class="tile"><b>${done.enough ? days(done.avg_days) : '—'}</b>
           <span>Средний срок дела</span>
           <span class="sub">${done.enough
-            ? 'медиана ' + days(done.median_days)
+            ? 'от создания сделки · медиана ' + days(done.median_days)
             : 'мало завершённых дел: ' + esc(done.count)}</span></div>
+        <div class="tile"><b>${doneC.enough ? days(doneC.avg_days) : '—'}</b>
+          <span>Цикл от договора</span>
+          <span class="sub">${doneC.enough
+            ? 'от «' + esc(ov.contract_stage_name || 'Договор заключён') + '» · медиана ' + days(doneC.median_days)
+            : 'мало дел с датой договора в истории'}</span></div>
         <div class="tile"><b>${esc(done.count)}</b>
           <span>Дошли до «${esc(ov.done_stage_name)}»</span>
           <span class="sub">самое долгое: ${days(done.max_days)}</span></div>
@@ -854,12 +861,27 @@
         `<tr><td colspan="5" class="empty">Не удалось загрузить: ${esc(e.message || e)}</td></tr>`;
       return;
     }
-    // Summary-тайлы: среднее дел на менеджера + всего действующих
+    // Summary-тайлы: 6 KPI по всем действующим менеджерам.
+    // Форматтер времени: <1ч → минуты, иначе часы. `—` если нет данных.
+    const fmtHours = h => h == null ? '—' :
+      (h < 1 ? Math.round(h * 60) + ' мин' : esc(h) + ' ч');
     document.getElementById('mm-summary').innerHTML = `
       <div class="kpi-group"><div class="tiles">
         <div class="tile"><b>${esc(d.avg_deals_per_manager)}</b>
           <span>Среднее дел на менеджера</span>
           <span class="sub">по действующим с делами</span></div>
+        <div class="tile"><b>${fmtHours(d.avg_reply_hours_overall)}</b>
+          <span>Среднее время ответа</span>
+          <span class="sub">по всем менеджерам</span></div>
+        <div class="tile"><b>${esc(d.avg_reply_count_overall)}</b>
+          <span>Ответов на менеджера</span>
+          <span class="sub">в чатах приложения</span></div>
+        <div class="tile"><b>${d.avg_nps_overall == null ? '—' : esc(d.avg_nps_overall)}</b>
+          <span>Средний NPS</span>
+          <span class="sub">по действующим</span></div>
+        <div class="tile"><b>${esc(d.avg_complaints_overall)}</b>
+          <span>Жалоб на менеджера</span>
+          <span class="sub">среднее</span></div>
         <div class="tile"><b>${esc(d.total_active_managers)}</b>
           <span>Действующих менеджеров</span>
           <span class="sub">${d.hidden_inactive ? 'скрыто уволенных: ' + esc(d.hidden_inactive) : 'уволенных нет'}</span></div>
@@ -867,7 +889,7 @@
 
     const t = document.getElementById('mm-rows');
     if (!d.managers.length) {
-      t.innerHTML = '<tr><td colspan="5" class="empty">Нет данных. Проверьте что снимок сделок собран и Bitrix настроен.</td></tr>';
+      t.innerHTML = '<tr><td colspan="6" class="empty">Нет данных. Проверьте что снимок сделок собран и Bitrix настроен.</td></tr>';
       return;
     }
     // Раскраска: высокое время ответа — красным; низкий NPS — красным;
@@ -878,12 +900,14 @@
       <tr>
         <td>${esc(m.manager_name)}</td>
         <td style="text-align:right"><b>${esc(m.deals_in_progress)}</b></td>
+        <td style="text-align:right">${m.reply_count > 0
+          ? `<b>${esc(m.reply_count)}</b>`
+          : '<span class="muted">—</span>'}</td>
         <td style="text-align:right" class="${replyClass(m.avg_reply_hours)}">
           ${m.avg_reply_hours == null ? '<span class="muted">—</span>'
             : (m.avg_reply_hours < 1
                 ? `<b>${Math.round(m.avg_reply_hours * 60)} мин</b>`
                 : `<b>${esc(m.avg_reply_hours)} ч</b>`)}
-          ${m.reply_count ? `<div class="muted" style="font-size:11px">по ${esc(m.reply_count)} парам</div>` : ''}
         </td>
         <td style="text-align:right" class="${npsClass(m.nps_avg)}">
           ${m.nps_avg == null ? '<span class="muted">—</span>' : `<b>${esc(m.nps_avg)}</b>`}

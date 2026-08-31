@@ -505,13 +505,14 @@ def overall() -> dict:
 
     Считаем только по дошедшим до списания. Незавершённые исключены: их срок
     ещё не истёк, и включение занизило бы среднее.
+
+    done                — от даты создания сделки (включает pre-sales)
+    done_from_contract  — от даты попадания в стадию «Договор заключён»
+                          (только цикл юристов сопровождения — точнее)
     """
     done_stage = settings.stage_done_id
+    contract_stage = settings.stage_contract_signed_id
     with _conn() as c:
-        # PostgreSQL требует все non-aggregate поля в GROUP BY (SQLite
-        # позволял implicit-first). Группируем и по deal_id, и по
-        # created_at — deal_id уникален в snapshot'e, значит created_at
-        # тоже уникален в контексте группы.
         rows = c.execute(
             "SELECT h.deal_id, MIN(h.entered_at) done_at, d.created_at "
             "FROM deal_stage_history h JOIN deal_snapshot d "
@@ -526,6 +527,25 @@ def overall() -> dict:
         if start and end and end >= start:
             durations.append((end - start).total_seconds() / 86400)
 
+    # NEW: цикл от даты попадания в стадию «Договор заключён».
+    # JOIN двух entered_at по одному deal_id — контрактной и завершающей.
+    with _conn() as c:
+        rows_c = c.execute(
+            "SELECT hd.deal_id, "
+            "MIN(hd.entered_at) done_at, "
+            "MIN(hc.entered_at) contract_at "
+            "FROM deal_stage_history hd "
+            "JOIN deal_stage_history hc "
+            "  ON hc.deal_id = hd.deal_id AND hc.stage_id = ? "
+            "WHERE hd.stage_id = ? "
+            "GROUP BY hd.deal_id",
+            (contract_stage, done_stage)).fetchall()
+    from_contract = []
+    for r in rows_c:
+        start, end = _parse(r["contract_at"]), _parse(r["done_at"])
+        if start and end and end >= start:
+            from_contract.append((end - start).total_seconds() / 86400)
+
     # Сколько дел в работе прямо сейчас — то есть не завершены и не провалены.
     with _conn() as c:
         snap = c.execute("SELECT stage_id FROM deal_snapshot").fetchall()
@@ -533,10 +553,14 @@ def overall() -> dict:
                       if stage_kind(s["stage_id"]) in ("work", "stuck"))
     failed = sum(1 for s in snap if stage_kind(s["stage_id"]) == "failed")
 
-    return {"done": _summary(durations), "total_deals": int(total_deals),
+    return {"done": _summary(durations),
+            "done_from_contract": _summary(from_contract),
+            "total_deals": int(total_deals),
             "in_progress": in_progress, "failed": failed,
             "done_stage_name": _stage_dict().get(done_stage, {}).get(
-                "name", done_stage)}
+                "name", done_stage),
+            "contract_stage_name": _stage_dict().get(contract_stage, {}).get(
+                "name", contract_stage)}
 
 
 def status() -> dict:

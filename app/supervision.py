@@ -779,8 +779,31 @@ def manager_metrics() -> dict:
                        / len(active_with_deals), 1)
                  if active_with_deals else 0.0)
 
+    # Overall-средние по компании: считаем только по менеджерам у которых
+    # соответствующая метрика вообще определена (не None и >0). Иначе один
+    # менеджер без чатов занизил бы «среднее время ответа» до нуля.
+    def _avg(xs: list) -> float | None:
+        xs = [v for v in xs if v is not None]
+        return round(sum(xs) / len(xs), 2) if xs else None
+
+    avg_reply_hours = _avg([m["avg_reply_hours"] for m in managers])
+    # Среднее число ответов юриста в чатах на менеджера.
+    reply_counts = [m["reply_count"] for m in managers if m["reply_count"] > 0]
+    avg_reply_count = (round(sum(reply_counts) / len(reply_counts), 1)
+                       if reply_counts else 0.0)
+    avg_nps = _avg([m["nps_avg"] for m in managers])
+    # Жалоб: включаем всех действующих в знаменатель (даже нулевые) —
+    # иначе если только один пожалован, среднее = число его жалоб.
+    complaints_all = [m["complaints"] for m in managers]
+    avg_complaints = (round(sum(complaints_all) / len(complaints_all), 2)
+                      if complaints_all else 0.0)
+
     return {
         "avg_deals_per_manager": avg_deals,
+        "avg_reply_hours_overall": avg_reply_hours,
+        "avg_reply_count_overall": avg_reply_count,
+        "avg_nps_overall": avg_nps,
+        "avg_complaints_overall": avg_complaints,
         "total_active_managers": len(managers),
         "hidden_inactive": hidden_inactive,
         "managers": managers,
