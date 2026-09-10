@@ -808,3 +808,102 @@ def manager_metrics() -> dict:
         "hidden_inactive": hidden_inactive,
         "managers": managers,
     }
+
+
+# ---------------------------------------------------------------------------
+# Дневная активность менеджеров: сколько уникальных клиентов и сколько
+# сообщений отправлено за выбранный день/диапазон.
+# ---------------------------------------------------------------------------
+
+_MSK = timezone(timedelta(hours=3))
+
+
+def _parse_ymd(s):
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=_MSK)
+    except (ValueError, TypeError):
+        return None
+
+
+def manager_activity(date_from: str = "", date_to: str = "") -> dict:
+    """Активность менеджеров в чатах приложения по дням.
+
+    Возвращает:
+        {
+          "date_from": "2026-09-01", "date_to": "2026-09-10",
+          "managers": [
+            {manager_id, manager_name, unique_clients, messages_sent},
+            ...
+          ]
+        }
+
+    Даты интерпретируются как МСК. Пустые = сегодня по МСК.
+    Диапазон включительный (date_to целиком входит).
+
+    Считаем только записи с manager_bitrix_id IS NOT NULL — автоматика
+    (шаблоны/автоответы) и старые сообщения без резолва в подсчёт
+    не входят (иначе бот-активность искажает картину).
+    """
+    today_msk = datetime.now(_MSK).date().isoformat()
+    df = _parse_ymd(date_from) or _parse_ymd(today_msk)
+    dt_to = _parse_ymd(date_to) or df
+    if dt_to < df:
+        df, dt_to = dt_to, df
+    # end = начало следующего дня после date_to (полуоткрытый интервал)
+    start_utc = df.astimezone(timezone.utc).isoformat(timespec="seconds")
+    end_utc = (dt_to + timedelta(days=1)).astimezone(timezone.utc).isoformat(timespec="seconds")
+
+    rows: list = []
+    total_unique = 0
+    try:
+        with _conn() as c:
+            rows = c.execute(
+                "SELECT manager_bitrix_id AS mid, "
+                "       COUNT(DISTINCT email) AS unique_clients, "
+                "       COUNT(*) AS messages_sent "
+                "FROM chat_messages "
+                "WHERE incoming = 1 "
+                "  AND manager_bitrix_id IS NOT NULL "
+                "  AND created_at >= ? AND created_at < ? "
+                "GROUP BY manager_bitrix_id "
+                "ORDER BY messages_sent DESC",
+                (start_utc, end_utc),
+            ).fetchall()
+            # Отдельный запрос — истинно уникальные клиенты по всем менеджерам
+            # за период (без задваивания того, кто писал двум менеджерам).
+            tu = c.execute(
+                "SELECT COUNT(DISTINCT email) n FROM chat_messages "
+                "WHERE incoming = 1 "
+                "  AND manager_bitrix_id IS NOT NULL "
+                "  AND created_at >= ? AND created_at < ?",
+                (start_utc, end_utc),
+            ).fetchone()
+            total_unique = int(tu["n"]) if tu else 0
+    except sqlite3.OperationalError as e:
+        # Колонка manager_bitrix_id ещё не создана — миграция не прогналась.
+        log.warning("manager_activity: %s", e)
+        rows = []
+
+    cards = stages.users()
+    managers = []
+    for r in rows:
+        mid = int(r["mid"])
+        card = cards.get(mid, {})
+        name = card.get("name") or f"ID {mid}"
+        managers.append({
+            "manager_id": mid,
+            "manager_name": name,
+            "unique_clients": int(r["unique_clients"]),
+            "messages_sent": int(r["messages_sent"]),
+        })
+
+    return {
+        "date_from": df.date().isoformat(),
+        "date_to": dt_to.date().isoformat(),
+        "managers": managers,
+        "totals": {
+            "unique_clients": total_unique,
+            "messages_sent": sum(m["messages_sent"] for m in managers),
+            "managers_active": len(managers),
+        },
+    }

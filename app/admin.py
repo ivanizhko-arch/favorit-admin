@@ -352,6 +352,18 @@ def admin_manager_metrics(_: str = Depends(get_admin)):
     return supervision.manager_metrics()
 
 
+@router.get("/api/manager-activity")
+def admin_manager_activity(
+    date_from: str = "",
+    date_to: str = "",
+    _: str = Depends(get_admin),
+):
+    """Активность менеджеров в чатах приложения по дням.
+    date_from / date_to — YYYY-MM-DD в МСК. Пустые = сегодня.
+    Диапазон включительный."""
+    return supervision.manager_activity(date_from=date_from, date_to=date_to)
+
+
 # ---------------------------------------------------------------------------
 # Отдел сопровождения: отказы и зависшие дела
 # ---------------------------------------------------------------------------

@@ -186,6 +186,28 @@
     </table>
     <p class="muted" id="mm-note" style="margin-top:10px"></p>
 
+    <!-- АКТИВНОСТЬ МЕНЕДЖЕРОВ ПО ДНЯМ -->
+    <div class="section-title" id="s-activity" style="margin-top:22px">📅 Активность менеджеров по дням</div>
+    <div class="filters">
+      <label class="muted">С <input type="date" id="ma-from" style="margin-left:6px"></label>
+      <label class="muted">по <input type="date" id="ma-to" style="margin-left:6px"></label>
+      <button class="btn-ghost" onclick="setActivityPreset('today')">Сегодня</button>
+      <button class="btn-ghost" onclick="setActivityPreset('yesterday')">Вчера</button>
+      <button class="btn-ghost" onclick="setActivityPreset('7d')">7 дней</button>
+      <button class="btn-ghost" onclick="setActivityPreset('30d')">30 дней</button>
+      <button class="btn-gold" onclick="loadManagerActivity()">Показать</button>
+    </div>
+    <div id="ma-summary"></div>
+    <table>
+      <thead><tr>
+        <th>Менеджер</th>
+        <th style="text-align:right" title="Уникальных клиентов, которым менеджер написал хотя бы одно сообщение">Клиентов</th>
+        <th style="text-align:right" title="Всего сообщений от менеджера клиенту">Сообщений</th>
+      </tr></thead>
+      <tbody id="ma-rows"><tr><td colspan="3" class="empty">Выберите период и нажмите «Показать»</td></tr></tbody>
+    </table>
+    <p class="muted" id="ma-note" style="margin-top:10px"></p>
+
     <!-- ТРЕНД NPS -->
     <div class="trend">
       <h3>Тренд оценок клиентов</h3>
@@ -637,7 +659,7 @@
   // Данные грузятся при первом открытии вкладки, а не все разом. Раньше вход
   // в админку разом отправлял семь запросов, а видно было два блока.
   const TAB_LOADERS = {
-    dashboard: () => { loadStats(); loadStages(); loadManagerMetrics(); loadTrend(); },
+    dashboard: () => { loadStats(); loadStages(); loadManagerMetrics(); loadTrend(); setActivityPreset('today'); },
     clients:   () => { loadUsers(); loadCollectors(); loadWhitelist(); },
     chats:     () => { loadChats(); startChatsAutoRefresh(); },
     quality:   () => { loadQuality(); loadNps(); loadSupervision();
@@ -926,6 +948,78 @@
       'в чате приложения. Матчинг менеджера в чате идёт по author_name — если менеджер поменял имя ' +
       'в Bitrix, старые сообщения могут не сматчиться. NPS — средняя из оценок 0-10 (сейчас в БД только 8-10). ' +
       'Уволенные (Bitrix ACTIVE=N) в рейтинг не включаются.';
+  }
+
+  // ---- Активность менеджеров по дням ----
+  // Дневная статистика: уникальные клиенты + число сообщений от менеджера
+  // клиенту за выбранный диапазон. Диапазон в МСК, дата_до — включительно.
+  function _todayMskYmd(){
+    // «Сегодня» с точки зрения Москвы: смещаем UTC на +3 и берём YYYY-MM-DD.
+    const d = new Date(Date.now() + 3*60*60*1000);
+    return d.toISOString().slice(0, 10);
+  }
+  function _addDaysYmd(ymd, delta){
+    const [y,m,d] = ymd.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m-1, d));
+    dt.setUTCDate(dt.getUTCDate() + delta);
+    return dt.toISOString().slice(0, 10);
+  }
+  function setActivityPreset(preset){
+    const today = _todayMskYmd();
+    let from = today, to = today;
+    if (preset === 'yesterday') { from = _addDaysYmd(today, -1); to = from; }
+    else if (preset === '7d')   { from = _addDaysYmd(today, -6); to = today; }
+    else if (preset === '30d')  { from = _addDaysYmd(today, -29); to = today; }
+    document.getElementById('ma-from').value = from;
+    document.getElementById('ma-to').value = to;
+    loadManagerActivity();
+  }
+  async function loadManagerActivity(){
+    const from = document.getElementById('ma-from').value;
+    const to = document.getElementById('ma-to').value;
+    const qs = [];
+    if (from) qs.push('date_from=' + encodeURIComponent(from));
+    if (to) qs.push('date_to=' + encodeURIComponent(to));
+    let d;
+    try {
+      d = await api('/manager-activity' + (qs.length ? '?' + qs.join('&') : ''));
+    } catch (e) {
+      document.getElementById('ma-rows').innerHTML =
+        `<tr><td colspan="3" class="empty">Не удалось загрузить: ${esc(e.message || e)}</td></tr>`;
+      return;
+    }
+    const sameDay = d.date_from === d.date_to;
+    const period = sameDay ? esc(d.date_from) : `${esc(d.date_from)} – ${esc(d.date_to)}`;
+    document.getElementById('ma-summary').innerHTML = `
+      <div class="kpi-group"><div class="tiles">
+        <div class="tile"><b>${esc(d.totals.managers_active)}</b>
+          <span>Менеджеров активны</span>
+          <span class="sub">${period}</span></div>
+        <div class="tile"><b>${esc(d.totals.unique_clients)}</b>
+          <span>Клиентов охвачено</span>
+          <span class="sub">суммарно по всем менеджерам*</span></div>
+        <div class="tile"><b>${esc(d.totals.messages_sent)}</b>
+          <span>Сообщений отправлено</span>
+          <span class="sub">от менеджеров клиентам</span></div>
+      </div></div>`;
+
+    const t = document.getElementById('ma-rows');
+    if (!d.managers.length) {
+      t.innerHTML = '<tr><td colspan="3" class="empty">За выбранный период менеджеры клиентам не писали</td></tr>';
+      return;
+    }
+    t.innerHTML = d.managers.map(m => `
+      <tr>
+        <td>${esc(m.manager_name)}</td>
+        <td style="text-align:right"><b>${esc(m.unique_clients)}</b></td>
+        <td style="text-align:right"><b>${esc(m.messages_sent)}</b></td>
+      </tr>`).join('');
+
+    document.getElementById('ma-note').innerHTML =
+      'Клиенты — уникальные email, которым менеджер отправил хотя бы одно сообщение за период. ' +
+      'Сообщения — все ответы менеджера в чате приложения (текст и файлы отдельно). ' +
+      'Автоответы (шаблоны стадий, дежурный автоответ) не учитываются. ' +
+      '<b>*</b> Сумма «Клиентов охвачено» по строкам может быть больше итога — один клиент мог общаться с несколькими менеджерами.';
   }
 
   // ---- Тренд оценок (inline SVG, без внешних библиотек) ----
