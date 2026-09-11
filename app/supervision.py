@@ -860,7 +860,8 @@ def manager_activity(date_from: str = "", date_to: str = "") -> dict:
             rows = c.execute(
                 "SELECT manager_bitrix_id AS mid, "
                 "       COUNT(DISTINCT email) AS unique_clients, "
-                "       COUNT(*) AS messages_sent "
+                "       COUNT(*) AS messages_sent, "
+                "       MAX(author_name) AS fallback_name "
                 "FROM chat_messages "
                 "WHERE incoming = 1 "
                 "  AND manager_bitrix_id IS NOT NULL "
@@ -889,7 +890,13 @@ def manager_activity(date_from: str = "", date_to: str = "") -> dict:
     for r in rows:
         mid = int(r["mid"])
         card = cards.get(mid, {})
-        name = card.get("name") or f"ID {mid}"
+        # Fallback имени: снимок сделок → author_name из чата → "ID N".
+        # stages.users() содержит только менеджеров, назначенных сейчас
+        # ответственными хотя бы на одной активной сделке. Дежурные юристы,
+        # уволенные или те кто пишет только в чате (без назначения сделок)
+        # в снимок не попадают — берём имя из самого сообщения.
+        fallback = (r["fallback_name"] or "").strip()
+        name = card.get("name") or fallback or f"ID {mid}"
         managers.append({
             "manager_id": mid,
             "manager_name": name,
