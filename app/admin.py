@@ -352,6 +352,43 @@ def admin_manager_metrics(_: str = Depends(get_admin)):
     return supervision.manager_metrics()
 
 
+@router.get("/api/manager-activity")
+def admin_manager_activity(
+    date_from: str = "",
+    date_to: str = "",
+    _: str = Depends(get_admin),
+):
+    """Активность менеджеров в чатах приложения по дням.
+    date_from / date_to — YYYY-MM-DD в МСК. Пустые = сегодня.
+    Диапазон включительный."""
+    return supervision.manager_activity(date_from=date_from, date_to=date_to)
+
+
+@router.get("/api/manager-activity.xlsx")
+def admin_manager_activity_xlsx(
+    date_from: str = "",
+    date_to: str = "",
+    _: str = Depends(get_admin),
+):
+    """Excel-выгрузка активности менеджеров за период. Один лист:
+    строка на менеджера, колонки по дням, сумма/уникальные клиенты слева."""
+    from fastapi.responses import StreamingResponse
+    from urllib.parse import quote
+    buf, filename = supervision.manager_activity_export(
+        date_from=date_from, date_to=date_to)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            # RFC 5987 — кириллица в имени файла (filename*).
+            "Content-Disposition": (
+                f"attachment; filename=\"{filename}\"; "
+                f"filename*=UTF-8''{quote(filename)}"
+            ),
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Отдел сопровождения: отказы и зависшие дела
 # ---------------------------------------------------------------------------
@@ -508,19 +545,55 @@ def admin_chats_list(
         now = datetime.now(timezone.utc)
         for r in rows:
             email = r["email"]
-            last = c.execute(
-                "SELECT created_at, incoming, kind, author_name, "
-                "substr(text, 1, 120) txt, is_file, file_name "
-                "FROM chat_messages WHERE id = ?",
-                (r["last_id"],),
-            ).fetchone()
+            # no_reply_needed — миграция в favorit-app могла ещё не
+            # примениться к общей БД. try/except с fallback.
+            try:
+                last = c.execute(
+                    "SELECT created_at, incoming, kind, author_name, "
+                    "substr(text, 1, 120) txt, is_file, file_name, "
+                    "no_reply_needed "
+                    "FROM chat_messages WHERE id = ?",
+                    (r["last_id"],),
+                ).fetchone()
+                has_no_reply = True
+            except Exception:
+                last = c.execute(
+                    "SELECT created_at, incoming, kind, author_name, "
+                    "substr(text, 1, 120) txt, is_file, file_name "
+                    "FROM chat_messages WHERE id = ?",
+                    (r["last_id"],),
+                ).fetchone()
+                has_no_reply = False
             lawyer_row = c.execute(
                 "SELECT author_name FROM chat_messages "
                 "WHERE email = ? AND incoming = 1 AND author_name != '' "
                 "ORDER BY id DESC LIMIT 1",
                 (email,),
             ).fetchone()
-            lawyer_name = lawyer_row["author_name"] if lawyer_row else ""
+            db_lawyer_name = (lawyer_row["author_name"] if lawyer_row else "").strip()
+            # Приоритет — актуальный ответственный из Bitrix. Раньше
+            # брали только из БД, поэтому у клиентов, которым юрист ещё
+            # не отвечал в приложении (только автоответы), куратор был
+            # пуст, хотя в CRM он назначен.
+            bx_lawyer_name = ""
+            lawyer_reason = ""
+            try:
+                info = bitrix.client_bitrix_urls(email)
+                bx_lawyer_name = (info.get("manager_name") or "").strip()
+                if not bx_lawyer_name:
+                    if not info.get("found"):
+                        lawyer_reason = "not_in_crm"
+                    elif not info.get("deal_id"):
+                        lawyer_reason = "no_deal"
+                    else:
+                        lawyer_reason = "no_assignee"
+            except Exception as e:  # noqa: BLE001
+                log.warning("chats: bitrix lookup %s failed: %s", email, e)
+                lawyer_reason = "bitrix_error"
+            lawyer_name = bx_lawyer_name or db_lawyer_name
+            # reason показываем только когда имени нет вообще
+            if lawyer_name:
+                lawyer_reason = ""
             # Колонка users.app_name — миграция из основного backend
             # (favorit_app), может ещё не примениться к общей БД. Пробуем
             # прочитать, при OperationalError падаем на просто name.
@@ -555,7 +628,16 @@ def admin_chats_list(
             except Exception:
                 hours_since = 0
 
-            waiting = last_from == "client" and hours_since > 0
+            # «Ждёт» = последний писал клиент, прошло > 0 ч.
+            # Исключаем случаи когда последнее сообщение = короткий
+            # acknowledge (спасибо/ок/👍 — no_reply_needed=1).
+            no_reply_last = False
+            if has_no_reply:
+                try:
+                    no_reply_last = bool(last["no_reply_needed"] or 0)
+                except Exception:  # noqa: BLE001
+                    pass
+            waiting = last_from == "client" and hours_since > 0 and not no_reply_last
             preview = last["txt"] or ""
             if last["is_file"] and last["file_name"]:
                 preview = f"📎 {last['file_name']}"
@@ -566,6 +648,7 @@ def admin_chats_list(
                 "email": email,
                 "client_name": client_name,
                 "lawyer_name": lawyer_name,
+                "lawyer_reason": lawyer_reason,
                 "last_at": last["created_at"],
                 "last_from": last_from,
                 "last_text": preview,
@@ -597,16 +680,33 @@ def admin_chats_list(
 
 @router.get("/api/chats/{email}")
 def admin_chat_history(email: str, limit: int = 300, _: str = Depends(get_admin)):
-    """Полная переписка с одним клиентом — раскрывается в модалке."""
+    """Полная переписка с одним клиентом — раскрывается в модалке.
+    reply_to_* — цитата сообщения на которое отвечали (для rich-preview)."""
+    # reply_to и no_reply_needed колонки могут отсутствовать в старой
+    # миграции — оборачиваем в try, fallback на минимальный набор.
     with db._conn() as c:
-        rows = c.execute(
-            "SELECT id, created_at, incoming, kind, author_name, text, "
-            "is_file, file_url, file_name FROM chat_messages "
-            "WHERE email = ? ORDER BY id DESC LIMIT ?",
-            (email.lower(), int(limit)),
-        ).fetchall()
-    messages = [
-        {
+        try:
+            rows = c.execute(
+                "SELECT id, created_at, incoming, kind, author_name, text, "
+                "is_file, file_url, file_name, "
+                "reply_to_id, reply_to_text, reply_to_author, "
+                "no_reply_needed "
+                "FROM chat_messages "
+                "WHERE email = ? ORDER BY id DESC LIMIT ?",
+                (email.lower(), int(limit)),
+            ).fetchall()
+            has_extra = True
+        except Exception:
+            rows = c.execute(
+                "SELECT id, created_at, incoming, kind, author_name, text, "
+                "is_file, file_url, file_name FROM chat_messages "
+                "WHERE email = ? ORDER BY id DESC LIMIT ?",
+                (email.lower(), int(limit)),
+            ).fetchall()
+            has_extra = False
+    messages = []
+    for r in rows:
+        item = {
             "id": r["id"],
             "at": r["created_at"],
             "from": "lawyer" if r["incoming"] else "client",
@@ -617,8 +717,12 @@ def admin_chat_history(email: str, limit: int = 300, _: str = Depends(get_admin)
             "file_url": r["file_url"] or "",
             "file_name": r["file_name"] or "",
         }
-        for r in rows
-    ]
+        if has_extra:
+            item["reply_to_id"] = int(r["reply_to_id"] or 0)
+            item["reply_to_text"] = r["reply_to_text"] or ""
+            item["reply_to_author"] = r["reply_to_author"] or ""
+            item["no_reply_needed"] = bool(r["no_reply_needed"] or 0)
+        messages.append(item)
     return {"email": email, "messages": list(reversed(messages))}
 
 

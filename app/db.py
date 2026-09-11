@@ -133,10 +133,23 @@ def init() -> None:
             c.execute("ALTER TABLE chat_messages ADD COLUMN read INTEGER DEFAULT 0")
         except sqlite3.OperationalError:
             pass  # уже существует
+        # Миграция: manager_bitrix_id — для дневной статистики активности.
+        # Основной ADD COLUMN живёт в favorit-app/backend/app/db.py, здесь
+        # дублируем на случай, если admin поднимется раньше основного бэка.
+        try:
+            c.execute("ALTER TABLE chat_messages ADD COLUMN manager_bitrix_id INTEGER")
+        except sqlite3.OperationalError:
+            pass  # уже существует
         c.execute("CREATE INDEX IF NOT EXISTS idx_chat_email_id "
                   "ON chat_messages (email, id)")
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_bitrix "
                   "ON chat_messages (bitrix_msg_id) WHERE bitrix_msg_id != ''")
+        try:
+            c.execute("CREATE INDEX IF NOT EXISTS idx_chat_manager_created "
+                      "ON chat_messages (manager_bitrix_id, created_at) "
+                      "WHERE manager_bitrix_id IS NOT NULL")
+        except sqlite3.OperationalError:
+            pass
         # События по прожиточному минимуму — клиент отмечает получил/запросил
         # ПМ за конкретный месяц. Хранится локально, чтобы не спамить Битрикс.
         c.execute("""

@@ -177,13 +177,37 @@
       <thead><tr>
         <th>Менеджер</th>
         <th style="text-align:right" title="Сколько активных дел на менеджере (work + stuck)">Дел в работе</th>
+        <th style="text-align:right" title="Сколько раз менеджер отвечал клиентам в чате приложения (incoming=1)">Ответов в чате</th>
         <th style="text-align:right" title="Среднее время от сообщения клиента до ответа менеджера в чате приложения">Ср. время ответа</th>
         <th style="text-align:right" title="Средняя оценка NPS от клиентов">NPS</th>
         <th style="text-align:right" title="Количество жалоб на менеджера">Жалоб</th>
       </tr></thead>
-      <tbody id="mm-rows"><tr><td colspan="5" class="empty">Загружаем...</td></tr></tbody>
+      <tbody id="mm-rows"><tr><td colspan="6" class="empty">Загружаем...</td></tr></tbody>
     </table>
     <p class="muted" id="mm-note" style="margin-top:10px"></p>
+
+    <!-- АКТИВНОСТЬ МЕНЕДЖЕРОВ ПО ДНЯМ -->
+    <div class="section-title" id="s-activity" style="margin-top:22px">📅 Активность менеджеров по дням</div>
+    <div class="filters">
+      <label class="muted">С <input type="date" id="ma-from" style="margin-left:6px"></label>
+      <label class="muted">по <input type="date" id="ma-to" style="margin-left:6px"></label>
+      <button class="btn-ghost" onclick="setActivityPreset('today')">Сегодня</button>
+      <button class="btn-ghost" onclick="setActivityPreset('yesterday')">Вчера</button>
+      <button class="btn-ghost" onclick="setActivityPreset('7d')">7 дней</button>
+      <button class="btn-ghost" onclick="setActivityPreset('30d')">30 дней</button>
+      <button class="btn-gold" onclick="loadManagerActivity()">Показать</button>
+      <button class="btn-ghost" onclick="downloadManagerActivityExcel()" title="Excel-выгрузка за выбранный период">📥 Скачать Excel</button>
+    </div>
+    <div id="ma-summary"></div>
+    <table>
+      <thead><tr>
+        <th>Менеджер</th>
+        <th style="text-align:right" title="Уникальных клиентов, которым менеджер написал хотя бы одно сообщение">Клиентов</th>
+        <th style="text-align:right" title="Всего сообщений от менеджера клиенту">Сообщений</th>
+      </tr></thead>
+      <tbody id="ma-rows"><tr><td colspan="3" class="empty">Выберите период и нажмите «Показать»</td></tr></tbody>
+    </table>
+    <p class="muted" id="ma-note" style="margin-top:10px"></p>
 
     <!-- ТРЕНД NPS -->
     <div class="trend">
@@ -332,6 +356,56 @@
         <h3 id="ch-modal-title" style="color:var(--gold);font-size:17px;margin-bottom:4px">Чат</h3>
         <div id="ch-modal-sub" class="muted" style="font-size:12px;margin-bottom:20px"></div>
         <div id="ch-modal-body"></div>
+        <!-- Контекстное меню сообщения (правый клик) — Telegram-style -->
+        <div id="msg-ctx-menu" style="display:none;position:fixed;z-index:300;background:var(--ink2);border:1px solid var(--line);border-radius:8px;padding:4px 0;min-width:180px;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-size:13px">
+          <div id="ctx-reply" class="ctx-item" onclick="ctxReply()" style="padding:8px 14px;cursor:pointer;color:#e8ebf1">↩&nbsp;&nbsp;Ответить</div>
+          <div id="ctx-copy" class="ctx-item" onclick="ctxCopy()" style="padding:8px 14px;cursor:pointer;color:#e8ebf1">📋&nbsp;&nbsp;Копировать текст</div>
+          <div id="ctx-edit" class="ctx-item" onclick="ctxEdit()" style="padding:8px 14px;cursor:pointer;color:#e8ebf1">✎&nbsp;&nbsp;Изменить</div>
+          <div id="ctx-delete" class="ctx-item" onclick="ctxDelete()" style="padding:8px 14px;cursor:pointer;color:var(--danger)">🗑&nbsp;&nbsp;Удалить</div>
+          <div id="ctx-forward" class="ctx-item" onclick="ctxForward()" style="padding:8px 14px;cursor:pointer;color:#e8ebf1">↪&nbsp;&nbsp;Переслать</div>
+          <div id="ctx-mark-noreply" class="ctx-item" onclick="ctxMarkNoReply()" style="padding:8px 14px;cursor:pointer;color:var(--ok)">✓&nbsp;&nbsp;Не требует ответа</div>
+          <div id="ctx-unmark-noreply" class="ctx-item" onclick="ctxUnmarkNoReply()" style="padding:8px 14px;cursor:pointer;color:var(--muted)">✕&nbsp;&nbsp;Требует ответа</div>
+        </div>
+        <style>.ctx-item:hover{background:rgba(215,174,94,0.12)}</style>
+        <!-- Ответ клиенту. Сообщение уйдёт в приложение клиента и в
+             open-line-чат Bitrix (юрист сопровождения увидит). -->
+        <div id="ch-reply-form" style="margin-top:18px;padding-top:16px;border-top:1px solid var(--line)">
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+            <label class="muted" style="font-size:12px">От имени:</label>
+            <select id="ch-reply-author" style="padding:6px 10px;border-radius:6px;background:var(--ink);color:#e8ebf1;border:1px solid var(--line);font-size:12px;min-width:220px">
+              <optgroup label="Супервизоры">
+                <option value="Иван Ижко">Иван Ижко</option>
+                <option value="Костромина Ксения Александровна">Ксения Костромина</option>
+              </optgroup>
+            </select>
+          </div>
+          <!-- Цитата reply-to (появляется когда пользователь нажал «Ответить» на конкретное сообщение) -->
+          <div id="ch-reply-quote" style="display:none;margin-bottom:8px;padding:8px 12px;background:rgba(215,174,94,0.08);border-left:3px solid var(--gold);border-radius:6px;font-size:12px;color:#c8ccd4">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+              <span class="muted" style="font-size:10.5px">↩ Отвечаю на:</span>
+              <button onclick="cancelReplyTo()" style="background:transparent;color:var(--muted);font-size:14px;padding:0 4px;border-radius:4px;line-height:1">×</button>
+            </div>
+            <div id="ch-reply-quote-author" style="font-weight:600;color:var(--gold);font-size:11.5px"></div>
+            <div id="ch-reply-quote-text" style="font-style:italic;opacity:.8"></div>
+          </div>
+          <textarea id="ch-reply-text" placeholder="Ваш ответ клиенту…" rows="3"
+            style="width:100%;padding:10px 12px;border-radius:8px;background:var(--ink);color:#e8ebf1;border:1px solid var(--line);font-size:13px;font-family:inherit;resize:vertical;min-height:64px"></textarea>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;gap:8px;flex-wrap:wrap">
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="file" id="ch-reply-file" style="display:none" onchange="onSupervisorFileSelected(event)">
+              <button onclick="document.getElementById('ch-reply-file').click()"
+                style="background:transparent;color:var(--muted);border:1px solid var(--line);padding:8px 14px;border-radius:8px;font-size:12px;cursor:pointer"
+                title="Прикрепить файл">
+                📎 Файл
+              </button>
+              <span id="ch-reply-status" class="muted" style="font-size:11.5px"></span>
+            </div>
+            <button id="ch-reply-btn" onclick="sendSupervisorReply()"
+              style="background:var(--gold);color:#000;padding:8px 20px;border-radius:8px;font-weight:600;font-size:13px;border:0;cursor:pointer">
+              Отправить
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -384,7 +458,10 @@
     <div class="section-title" id="s-refusals">📉 Отказы по менеджерам</div>
     <div id="sv-warn"></div>
     <div class="filters">
-      <input class="grow" id="sv-q" placeholder="Поиск: фамилия менеджера" oninput="renderManagers()">
+      <input class="grow" id="sv-q" list="sv-mgr-list"
+        placeholder="Поиск: фамилия менеджера (клик — весь список)"
+        oninput="renderManagers()" onchange="onSvManagerPicked()">
+      <datalist id="sv-mgr-list"></datalist>
       <select id="sv-minrate" onchange="renderManagers()">
         <option value="0">Любая доля отказов</option>
         <option value="20">Доля от 20%</option>
@@ -583,7 +660,7 @@
   // Данные грузятся при первом открытии вкладки, а не все разом. Раньше вход
   // в админку разом отправлял семь запросов, а видно было два блока.
   const TAB_LOADERS = {
-    dashboard: () => { loadStats(); loadStages(); loadManagerMetrics(); loadTrend(); },
+    dashboard: () => { loadStats(); loadStages(); loadManagerMetrics(); loadTrend(); setActivityPreset('today'); },
     clients:   () => { loadUsers(); loadCollectors(); loadWhitelist(); },
     chats:     () => { loadChats(); startChatsAutoRefresh(); },
     quality:   () => { loadQuality(); loadNps(); loadSupervision();
@@ -730,13 +807,19 @@
 
     // Средний срок дела целиком — главная цифра, поэтому отдельными плитками.
     const done = ov.done;
+    const doneC = ov.done_from_contract || {enough:false, avg_days:null, count:0};
     document.getElementById('st-overall').innerHTML = `
       <div class="kpi-group"><div class="tiles">
         <div class="tile"><b>${done.enough ? days(done.avg_days) : '—'}</b>
           <span>Средний срок дела</span>
           <span class="sub">${done.enough
-            ? 'медиана ' + days(done.median_days)
+            ? 'от создания сделки · медиана ' + days(done.median_days)
             : 'мало завершённых дел: ' + esc(done.count)}</span></div>
+        <div class="tile"><b>${doneC.enough ? days(doneC.avg_days) : '—'}</b>
+          <span>Цикл от договора</span>
+          <span class="sub">${doneC.enough
+            ? 'от «' + esc(ov.contract_stage_name || 'Договор заключён') + '» · медиана ' + days(doneC.median_days)
+            : 'мало дел с датой договора в истории'}</span></div>
         <div class="tile"><b>${esc(done.count)}</b>
           <span>Дошли до «${esc(ov.done_stage_name)}»</span>
           <span class="sub">самое долгое: ${days(done.max_days)}</span></div>
@@ -801,12 +884,27 @@
         `<tr><td colspan="5" class="empty">Не удалось загрузить: ${esc(e.message || e)}</td></tr>`;
       return;
     }
-    // Summary-тайлы: среднее дел на менеджера + всего действующих
+    // Summary-тайлы: 6 KPI по всем действующим менеджерам.
+    // Форматтер времени: <1ч → минуты, иначе часы. `—` если нет данных.
+    const fmtHours = h => h == null ? '—' :
+      (h < 1 ? Math.round(h * 60) + ' мин' : esc(h) + ' ч');
     document.getElementById('mm-summary').innerHTML = `
       <div class="kpi-group"><div class="tiles">
         <div class="tile"><b>${esc(d.avg_deals_per_manager)}</b>
           <span>Среднее дел на менеджера</span>
           <span class="sub">по действующим с делами</span></div>
+        <div class="tile"><b>${fmtHours(d.avg_reply_hours_overall)}</b>
+          <span>Среднее время ответа</span>
+          <span class="sub">по всем менеджерам</span></div>
+        <div class="tile"><b>${esc(d.avg_reply_count_overall)}</b>
+          <span>Ответов на менеджера</span>
+          <span class="sub">в чатах приложения</span></div>
+        <div class="tile"><b>${d.avg_nps_overall == null ? '—' : esc(d.avg_nps_overall)}</b>
+          <span>Средний NPS</span>
+          <span class="sub">по действующим</span></div>
+        <div class="tile"><b>${esc(d.avg_complaints_overall)}</b>
+          <span>Жалоб на менеджера</span>
+          <span class="sub">среднее</span></div>
         <div class="tile"><b>${esc(d.total_active_managers)}</b>
           <span>Действующих менеджеров</span>
           <span class="sub">${d.hidden_inactive ? 'скрыто уволенных: ' + esc(d.hidden_inactive) : 'уволенных нет'}</span></div>
@@ -814,7 +912,7 @@
 
     const t = document.getElementById('mm-rows');
     if (!d.managers.length) {
-      t.innerHTML = '<tr><td colspan="5" class="empty">Нет данных. Проверьте что снимок сделок собран и Bitrix настроен.</td></tr>';
+      t.innerHTML = '<tr><td colspan="6" class="empty">Нет данных. Проверьте что снимок сделок собран и Bitrix настроен.</td></tr>';
       return;
     }
     // Раскраска: высокое время ответа — красным; низкий NPS — красным;
@@ -825,12 +923,14 @@
       <tr>
         <td>${esc(m.manager_name)}</td>
         <td style="text-align:right"><b>${esc(m.deals_in_progress)}</b></td>
+        <td style="text-align:right">${m.reply_count > 0
+          ? `<b>${esc(m.reply_count)}</b>`
+          : '<span class="muted">—</span>'}</td>
         <td style="text-align:right" class="${replyClass(m.avg_reply_hours)}">
           ${m.avg_reply_hours == null ? '<span class="muted">—</span>'
             : (m.avg_reply_hours < 1
                 ? `<b>${Math.round(m.avg_reply_hours * 60)} мин</b>`
                 : `<b>${esc(m.avg_reply_hours)} ч</b>`)}
-          ${m.reply_count ? `<div class="muted" style="font-size:11px">по ${esc(m.reply_count)} парам</div>` : ''}
         </td>
         <td style="text-align:right" class="${npsClass(m.nps_avg)}">
           ${m.nps_avg == null ? '<span class="muted">—</span>' : `<b>${esc(m.nps_avg)}</b>`}
@@ -849,6 +949,113 @@
       'в чате приложения. Матчинг менеджера в чате идёт по author_name — если менеджер поменял имя ' +
       'в Bitrix, старые сообщения могут не сматчиться. NPS — средняя из оценок 0-10 (сейчас в БД только 8-10). ' +
       'Уволенные (Bitrix ACTIVE=N) в рейтинг не включаются.';
+  }
+
+  // ---- Активность менеджеров по дням ----
+  // Дневная статистика: уникальные клиенты + число сообщений от менеджера
+  // клиенту за выбранный диапазон. Диапазон в МСК, дата_до — включительно.
+  function _todayMskYmd(){
+    // «Сегодня» с точки зрения Москвы: смещаем UTC на +3 и берём YYYY-MM-DD.
+    const d = new Date(Date.now() + 3*60*60*1000);
+    return d.toISOString().slice(0, 10);
+  }
+  function _addDaysYmd(ymd, delta){
+    const [y,m,d] = ymd.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m-1, d));
+    dt.setUTCDate(dt.getUTCDate() + delta);
+    return dt.toISOString().slice(0, 10);
+  }
+  function setActivityPreset(preset){
+    const today = _todayMskYmd();
+    let from = today, to = today;
+    if (preset === 'yesterday') { from = _addDaysYmd(today, -1); to = from; }
+    else if (preset === '7d')   { from = _addDaysYmd(today, -6); to = today; }
+    else if (preset === '30d')  { from = _addDaysYmd(today, -29); to = today; }
+    document.getElementById('ma-from').value = from;
+    document.getElementById('ma-to').value = to;
+    loadManagerActivity();
+  }
+  async function loadManagerActivity(){
+    const from = document.getElementById('ma-from').value;
+    const to = document.getElementById('ma-to').value;
+    const qs = [];
+    if (from) qs.push('date_from=' + encodeURIComponent(from));
+    if (to) qs.push('date_to=' + encodeURIComponent(to));
+    let d;
+    try {
+      d = await api('/manager-activity' + (qs.length ? '?' + qs.join('&') : ''));
+    } catch (e) {
+      document.getElementById('ma-rows').innerHTML =
+        `<tr><td colspan="3" class="empty">Не удалось загрузить: ${esc(e.message || e)}</td></tr>`;
+      return;
+    }
+    const sameDay = d.date_from === d.date_to;
+    const period = sameDay ? esc(d.date_from) : `${esc(d.date_from)} – ${esc(d.date_to)}`;
+    document.getElementById('ma-summary').innerHTML = `
+      <div class="kpi-group"><div class="tiles">
+        <div class="tile"><b>${esc(d.totals.managers_active)}</b>
+          <span>Менеджеров активны</span>
+          <span class="sub">${period}</span></div>
+        <div class="tile"><b>${esc(d.totals.unique_clients)}</b>
+          <span>Клиентов охвачено</span>
+          <span class="sub">суммарно по всем менеджерам*</span></div>
+        <div class="tile"><b>${esc(d.totals.messages_sent)}</b>
+          <span>Сообщений отправлено</span>
+          <span class="sub">от менеджеров клиентам</span></div>
+      </div></div>`;
+
+    const t = document.getElementById('ma-rows');
+    if (!d.managers.length) {
+      t.innerHTML = '<tr><td colspan="3" class="empty">За выбранный период менеджеры клиентам не писали</td></tr>';
+      return;
+    }
+    t.innerHTML = d.managers.map(m => `
+      <tr>
+        <td>${esc(m.manager_name)}</td>
+        <td style="text-align:right"><b>${esc(m.unique_clients)}</b></td>
+        <td style="text-align:right"><b>${esc(m.messages_sent)}</b></td>
+      </tr>`).join('');
+
+    document.getElementById('ma-note').innerHTML =
+      'Клиенты — уникальные email, которым менеджер отправил хотя бы одно сообщение за период. ' +
+      'Сообщения — все ответы менеджера в чате приложения (текст и файлы отдельно). ' +
+      'Автоответы (шаблоны стадий, дежурный автоответ) не учитываются. ' +
+      '<b>*</b> Сумма «Клиентов охвачено» по строкам может быть больше итога — один клиент мог общаться с несколькими менеджерами.';
+  }
+
+  // Excel-выгрузка активности за тот же диапазон дат, что в форме.
+  // Используем fetch с Bearer-токеном (авторизация в админке через JWT
+  // в заголовке, а window.open этот токен не передаст) → blob → скачивание.
+  async function downloadManagerActivityExcel(){
+    const from = document.getElementById('ma-from').value;
+    const to = document.getElementById('ma-to').value;
+    const qs = [];
+    if (from) qs.push('date_from=' + encodeURIComponent(from));
+    if (to) qs.push('date_to=' + encodeURIComponent(to));
+    const url = '/admin/api/manager-activity.xlsx' + (qs.length ? '?' + qs.join('&') : '');
+    try {
+      const res = await fetch(url, {headers:{'Authorization':'Bearer '+token}});
+      if (!res.ok) {
+        alert('Не удалось выгрузить: HTTP ' + res.status);
+        return;
+      }
+      const blob = await res.blob();
+      // Имя файла из Content-Disposition (сервер шлёт filename*=UTF-8 для кириллицы)
+      let filename = 'manager-activity.xlsx';
+      const cd = res.headers.get('Content-Disposition') || '';
+      const m = /filename\*=UTF-8''([^;]+)/i.exec(cd) || /filename="?([^";]+)/i.exec(cd);
+      if (m) { try { filename = decodeURIComponent(m[1]); } catch(e) { filename = m[1]; } }
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch (e) {
+      alert('Ошибка выгрузки: ' + (e.message || e));
+    }
   }
 
   // ---- Тренд оценок (inline SVG, без внешних библиотек) ----
@@ -1253,6 +1460,17 @@
   let svManagers = [];
 
   function renderManagers(){
+    // Заполним datalist для выпадающего списка (нативный combobox).
+    // Клиент при клике в поле поиска сразу видит всех менеджеров,
+    // при вводе — фильтруется браузером автоматически.
+    const dl = document.getElementById('sv-mgr-list');
+    if(dl && svManagers.length && dl.dataset.filled !== '1'){
+      dl.innerHTML = svManagers
+        .map(x => `<option value="${esc(x.manager_name)}"></option>`)
+        .join('');
+      dl.dataset.filled = '1';
+    }
+
     const q = document.getElementById('sv-q').value.trim().toLowerCase();
     const minRate = parseFloat(document.getElementById('sv-minrate').value) || 0;
     const minDeals = parseInt(document.getElementById('sv-mindeals').value, 10) || 0;
@@ -1302,6 +1520,46 @@
     document.getElementById('sv-mindeals').value = '0';
     renderManagers();
   }
+
+  // Пользователь выбрал ФИО из datalist (или ввёл его точно).
+  // Если ФИО совпадает с одним из svManagers — автоматически:
+  //   1. Ставим фильтры «Любая доля» / «Любое число дел» (сбрасываем)
+  //   2. Устанавливаем manager_id в селект «Причины отказов» ниже
+  //   3. Загружаем отказы этого менеджера
+  //   4. Скроллим к таблице rf-rows
+  // Это даёт drill-down: клик менеджер → сразу видишь его отказы.
+  function onSvManagerPicked(){
+    const val = (document.getElementById('sv-q').value || '').trim();
+    if(!val) return;
+    // Ищем менеджера по точному ФИО (регистронезависимо)
+    const found = svManagers.find(x =>
+      x.manager_name.toLowerCase() === val.toLowerCase()
+    );
+    if(!found) return; // введено что-то не из списка — не трогаем нижний блок
+    // Сбрасываем ограничивающие фильтры сверху — чтобы клиент увидел
+    // ВСЕ дела/отказы выбранного менеджера, а не отфильтрованные
+    document.getElementById('sv-minrate').value = '0';
+    document.getElementById('sv-mindeals').value = '0';
+    renderManagers();
+    // Устанавливаем менеджера в блок «Причины отказов» и загружаем
+    const rfSel = document.getElementById('rf-manager');
+    if(rfSel){
+      rfSel.value = String(found.manager_id);
+      // Сбросим reason и unknown_only чтобы показать ВСЕ отказы этого менеджера
+      const rsSel = document.getElementById('rf-reason');
+      if(rsSel) rsSel.value = '';
+      const unkChk = document.getElementById('rf-unknown');
+      if(unkChk) unkChk.checked = false;
+      pages.rf = 0;
+      loadRefusals();
+    }
+    // Плавный скролл к таблице отказов
+    const tgt = document.getElementById('rf-rows');
+    if(tgt){
+      tgt.scrollIntoView({behavior: 'smooth', block: 'start'});
+    }
+  }
+  window.onSvManagerPicked = onSvManagerPicked;
 
   async function loadSupervision(){
     const d = await api('/supervision');
@@ -1620,10 +1878,58 @@
            d.toLocaleTimeString('ru-RU', opts);
   }
 
+  // «Ключ дня» по МСК — для группировки сообщений в модалке чата.
+  // Возвращает YYYY-MM-DD. Используем en-CA чтобы получить ISO-формат.
+  function chDayKey(iso){
+    if(!iso) return '';
+    return new Date(iso).toLocaleDateString('en-CA', {timeZone:'Europe/Moscow'});
+  }
+
+  // Человекочитаемая метка дня для плашки-разделителя (Telegram-style).
+  // «Сегодня» / «Вчера» / «12 сентября» / «12 сентября 2024 г.» — если
+  // сообщение из прошлого года, показываем год.
+  function chDayLabel(iso){
+    if(!iso) return '';
+    const msgKey = chDayKey(iso);
+    const now = new Date();
+    const todayKey = now.toLocaleDateString('en-CA', {timeZone:'Europe/Moscow'});
+    const yestKey = new Date(now.getTime() - 24*3600*1000)
+      .toLocaleDateString('en-CA', {timeZone:'Europe/Moscow'});
+    if(msgKey === todayKey) return 'Сегодня';
+    if(msgKey === yestKey) return 'Вчера';
+    const d = new Date(iso);
+    const thisYear = todayKey.slice(0, 4);
+    const msgYear = msgKey.slice(0, 4);
+    const opts = msgYear === thisYear
+      ? {day:'numeric', month:'long', timeZone:'Europe/Moscow'}
+      : {day:'numeric', month:'long', year:'numeric', timeZone:'Europe/Moscow'};
+    return d.toLocaleDateString('ru-RU', opts);
+  }
+
+  // Только время (HH:MM МСК) — используется в модалке чата, где дата
+  // уже показана на плашке-разделителе выше.
+  function chFormatTimeOnly(iso){
+    if(!iso) return '';
+    return new Date(iso).toLocaleTimeString('ru-RU', {
+      hour:'2-digit', minute:'2-digit', timeZone:'Europe/Moscow',
+    });
+  }
+
   function chHotBadge(h){
     if(h < 1) return `${h.toFixed(1)}ч назад`;
     if(h < 24) return `${Math.round(h)}ч назад`;
     return `${Math.round(h/24)}д назад`;
+  }
+
+  function chLawyerReasonLabel(r){
+    // Подсказка админу: что именно не так — сразу видно, что делать.
+    switch(r){
+      case 'not_in_crm':   return '— нет в CRM';
+      case 'no_deal':      return '— нет сделки';
+      case 'no_assignee':  return '— нет ответственного';
+      case 'bitrix_error': return '— ошибка CRM';
+      default:             return '— не назначен';
+    }
   }
 
   function startChatsAutoRefresh(){
@@ -1725,7 +2031,7 @@
             <div class="muted mono" style="margin-top:2px">${chEsc(c.email)}</div>
             <div style="margin-top:6px">${badge}</div>
           </td>
-          <td>${chEsc(c.lawyer_name || '— не назначен')}</td>
+          <td>${chEsc(c.lawyer_name || chLawyerReasonLabel(c.lawyer_reason))}</td>
           <td style="max-width:340px;color:#c8ccd4;font-size:12.5px;line-height:1.5">${preview}</td>
           <td style="text-align:right">
             <div style="${hotStyle}">${chHotBadge(c.hours_since_last)}</div>
@@ -1749,12 +2055,111 @@
     }
   }
 
+  // Текущий email открытого чата — нужен для sendSupervisorReply.
+  let currentChatEmail = '';
+  // Reply-to state: id и данные сообщения на которое пользователь
+  // нажал «Ответить». null если ответ обычный (без цитаты).
+  let currentReplyTo = null;
+  // Кэш авторов для дропдауна (список из /admin/chat/authors)
+  let cachedAuthorsHtml = '';
+
+  // Fallback список — только супервизоры. Используется когда нет пароля
+  // (первое открытие модалки до первой отправки) или endpoint /authors
+  // недоступен. Как только пароль появится → загрузится полный список.
+  const FALLBACK_AUTHORS_HTML =
+    '<optgroup label="Супервизоры">' +
+    '<option value="Иван Ижко">Иван Ижко</option>' +
+    '<option value="Костромина Ксения Александровна">Ксения Костромина</option>' +
+    '</optgroup>';
+
+  // Загрузка списка авторов из /admin/chat/authors (одноразово,
+  // после успешного вызова кэшируется в localStorage на час).
+  async function loadReplyAuthors(force){
+    // Кэш свежий → применяем сразу
+    if(!force){
+      const cached = localStorage.getItem('supervisorAuthorsHtml');
+      const cachedTs = parseInt(localStorage.getItem('supervisorAuthorsTs') || '0', 10);
+      if(cached && (Date.now() - cachedTs) < 3600000){
+        cachedAuthorsHtml = cached;
+        applyAuthorsToSelect();
+        return;
+      }
+    }
+    // Всегда сначала выставим fallback (Иван + Ксения), чтобы дропдаун
+    // не оставался пустым, а пользователь мог сразу выбрать супервизора.
+    if(!cachedAuthorsHtml){
+      cachedAuthorsHtml = FALLBACK_AUTHORS_HTML;
+      applyAuthorsToSelect();
+    }
+    const pw = sessionStorage.getItem('favorit_admin_pw')
+             || localStorage.getItem('favorit_admin_pw');
+    if(!pw) return; // без пароля /authors вернёт 403 — оставим fallback
+    try{
+      const fd = new FormData();
+      fd.set('password', pw);
+      const res = await fetch('/api/admin/chat/authors', {method:'POST', body: fd});
+      if(!res.ok){
+        console.warn('loadReplyAuthors:', res.status);
+        return;
+      }
+      const j = await res.json();
+      const list = (j.authors || []);
+      const groups = {supervisor:[], lawyer:[]};
+      for(const a of list){
+        (groups[a.role] || groups.lawyer).push(a);
+      }
+      let html = '';
+      if(groups.supervisor.length){
+        html += '<optgroup label="Супервизоры">';
+        for(const a of groups.supervisor){
+          html += `<option value="${chEsc(a.name)}">${chEsc(a.name)}</option>`;
+        }
+        html += '</optgroup>';
+      }
+      if(groups.lawyer.length){
+        html += '<optgroup label="Юристы">';
+        for(const a of groups.lawyer){
+          html += `<option value="${chEsc(a.name)}">${chEsc(a.name)}</option>`;
+        }
+        html += '</optgroup>';
+      }
+      if(html){
+        cachedAuthorsHtml = html;
+        localStorage.setItem('supervisorAuthorsHtml', cachedAuthorsHtml);
+        localStorage.setItem('supervisorAuthorsTs', String(Date.now()));
+        applyAuthorsToSelect();
+      }
+    }catch(e){
+      console.warn('loadReplyAuthors error:', e);
+    }
+  }
+
+  function applyAuthorsToSelect(){
+    const sel = document.getElementById('ch-reply-author');
+    if(!sel || !cachedAuthorsHtml) return;
+    const savedAuthor = localStorage.getItem('supervisorReplyAuthor') || 'Иван Ижко';
+    sel.innerHTML = cachedAuthorsHtml;
+    sel.value = savedAuthor;
+    // Если saved не нашёлся — выставим первое
+    if(sel.value !== savedAuthor && sel.options.length){
+      sel.value = sel.options[0].value;
+    }
+  }
+
   async function openChatModal(email, name){
+    currentChatEmail = email;
+    currentReplyTo = null;
+    hideReplyQuote();
     const modal = document.getElementById('ch-modal');
     document.getElementById('ch-modal-title').textContent = name;
     document.getElementById('ch-modal-sub').textContent = email;
     const body = document.getElementById('ch-modal-body');
     body.innerHTML = '<div class="empty">Загружаем историю…</div>';
+    // Загружаем/применяем авторов и восстанавливаем выбор
+    await loadReplyAuthors();
+    applyAuthorsToSelect();
+    document.getElementById('ch-reply-text').value = '';
+    document.getElementById('ch-reply-status').textContent = '';
     modal.classList.remove('hidden');
     try{
       const j = await api('/chats/' + encodeURIComponent(email) + '?limit=300');
@@ -1764,15 +2169,182 @@
     }
   }
 
+  // Кэш последней загруженной истории — чтобы обрабатывать клики по
+  // сообщениям (Копировать/Ответить) не гоняя запрос заново.
+  let lastRenderedMessages = [];
+
+  function setReplyTo(msgId){
+    const m = lastRenderedMessages.find(x => x.id === msgId);
+    if(!m) return;
+    currentReplyTo = m;
+    const q = document.getElementById('ch-reply-quote');
+    document.getElementById('ch-reply-quote-author').textContent =
+      m.from === 'client' ? 'Клиент' : (m.author || 'Юрист');
+    document.getElementById('ch-reply-quote-text').textContent =
+      (m.is_file ? ('📎 ' + (m.file_name || 'файл')) : (m.text || '')).slice(0, 200);
+    q.style.display = 'block';
+    document.getElementById('ch-reply-text').focus();
+  }
+
+  function cancelReplyTo(){
+    currentReplyTo = null;
+    hideReplyQuote();
+  }
+
+  function hideReplyQuote(){
+    const q = document.getElementById('ch-reply-quote');
+    if(q) q.style.display = 'none';
+  }
+
+  function copyMessageText(msgId){
+    const m = lastRenderedMessages.find(x => x.id === msgId);
+    if(!m) return;
+    const t = m.is_file ? (m.file_url || m.file_name) : (m.text || '');
+    try{
+      navigator.clipboard.writeText(t);
+      const status = document.getElementById('ch-reply-status');
+      status.textContent = 'Скопировано';
+      status.style.color = 'var(--ok)';
+      setTimeout(() => { if(status.textContent === 'Скопировано') status.textContent = ''; }, 1500);
+    }catch(_){}
+  }
+
+  // Экспорт функций в window — вызываются из inline onclick в HTML сообщений.
+  window.setReplyTo = setReplyTo;
+  window.cancelReplyTo = cancelReplyTo;
+  window.copyMessageText = copyMessageText;
+
+  // Общий getter пароля админ-панели (favorit-app admin_password)
+  function getAdminPassword(promptIfMissing){
+    let pw = sessionStorage.getItem('favorit_admin_pw')
+           || localStorage.getItem('favorit_admin_pw');
+    if(!pw && promptIfMissing){
+      pw = prompt('Пароль админ-панели (main backend):');
+      if(pw){
+        sessionStorage.setItem('favorit_admin_pw', pw);
+        localStorage.setItem('favorit_admin_pw', pw);
+      }
+    }
+    return pw || '';
+  }
+
+  // Отправка текстового ответа супервизора клиенту.
+  async function sendSupervisorReply(){
+    const text = (document.getElementById('ch-reply-text').value || '').trim();
+    if(!text || !currentChatEmail) return;
+    const author = document.getElementById('ch-reply-author').value || 'Куратор';
+    localStorage.setItem('supervisorReplyAuthor', author);
+    const btn = document.getElementById('ch-reply-btn');
+    const status = document.getElementById('ch-reply-status');
+    const pw = getAdminPassword(true);
+    if(!pw) return;
+    btn.disabled = true;
+    status.textContent = 'Отправка…';
+    status.style.color = 'var(--muted)';
+    try{
+      const fd = new FormData();
+      fd.set('password', pw);
+      fd.set('email', currentChatEmail);
+      fd.set('text', text);
+      fd.set('supervisor_name', author);
+      fd.set('reply_to_id', String(currentReplyTo ? currentReplyTo.id : 0));
+      const res = await fetch('/api/admin/chat/reply', {method:'POST', body: fd});
+      if(res.status === 403){
+        sessionStorage.removeItem('favorit_admin_pw');
+        localStorage.removeItem('favorit_admin_pw');
+        throw new Error('Неверный пароль admin_password');
+      }
+      const j = await res.json();
+      if(!res.ok || !j.ok) throw new Error(j.detail || j.error || 'Ошибка');
+      document.getElementById('ch-reply-text').value = '';
+      cancelReplyTo();
+      const bxOk = j.bitrix_ok ? 'клиент + Bitrix' : 'только клиент (Bitrix chat_id не найден)';
+      status.textContent = 'Отправлено: ' + bxOk;
+      status.style.color = 'var(--ok)';
+      // Загрузим авторов заново (может появился новый юрист) — но
+      // не блокируя UI, из кэша если уже загружены
+      loadReplyAuthors();
+      try{
+        const jHist = await api('/chats/' + encodeURIComponent(currentChatEmail) + '?limit=300');
+        renderChatModal(jHist.messages);
+      }catch(_){}
+    }catch(e){
+      status.textContent = 'Ошибка: ' + e.message;
+      status.style.color = 'var(--danger)';
+    }finally{
+      btn.disabled = false;
+    }
+  }
+
+  // Отправка файла супервизора клиенту.
+  async function onSupervisorFileSelected(ev){
+    const file = ev.target.files && ev.target.files[0];
+    ev.target.value = ''; // сбрасываем input для повторного выбора того же файла
+    if(!file || !currentChatEmail) return;
+    // Простой лимит на клиенте — 20 МБ (за большими файлами не гоняемся)
+    if(file.size > 20 * 1024 * 1024){
+      const status = document.getElementById('ch-reply-status');
+      status.textContent = 'Файл больше 20 МБ — не отправлен';
+      status.style.color = 'var(--danger)';
+      return;
+    }
+    const author = document.getElementById('ch-reply-author').value || 'Куратор';
+    localStorage.setItem('supervisorReplyAuthor', author);
+    const status = document.getElementById('ch-reply-status');
+    const pw = getAdminPassword(true);
+    if(!pw) return;
+    status.textContent = `Загружаем ${file.name} (${Math.round(file.size/1024)} KB)…`;
+    status.style.color = 'var(--muted)';
+    try{
+      const fd = new FormData();
+      fd.set('password', pw);
+      fd.set('email', currentChatEmail);
+      fd.set('supervisor_name', author);
+      fd.set('reply_to_id', String(currentReplyTo ? currentReplyTo.id : 0));
+      fd.set('file', file);
+      const res = await fetch('/api/admin/chat/upload', {method:'POST', body: fd});
+      if(res.status === 403){
+        sessionStorage.removeItem('favorit_admin_pw');
+        localStorage.removeItem('favorit_admin_pw');
+        throw new Error('Неверный пароль admin_password');
+      }
+      const j = await res.json();
+      if(!res.ok || !j.ok) throw new Error(j.detail || j.error || 'Ошибка');
+      cancelReplyTo();
+      const bxOk = j.bitrix_ok ? 'клиент + Bitrix' : 'только клиент';
+      status.textContent = 'Файл отправлен: ' + bxOk;
+      status.style.color = 'var(--ok)';
+      try{
+        const jHist = await api('/chats/' + encodeURIComponent(currentChatEmail) + '?limit=300');
+        renderChatModal(jHist.messages);
+      }catch(_){}
+    }catch(e){
+      status.textContent = 'Ошибка: ' + e.message;
+      status.style.color = 'var(--danger)';
+    }
+  }
+
   function renderChatModal(messages){
+    lastRenderedMessages = messages || [];
     const body = document.getElementById('ch-modal-body');
     if(!messages.length){
       body.innerHTML = '<div class="empty">Переписка пуста.</div>';
       return;
     }
+    // Рендерим сообщения последовательно, вставляя между ними плашку-
+    // разделитель дня когда меняется календарная дата по МСК (стиль
+    // Telegram/WhatsApp). Даты не показываем на самих сообщениях —
+    // только время, чтобы не дублировать.
+    let prevDayKey = '';
     body.innerHTML = messages.map(m => {
+      const dayKey = chDayKey(m.at);
+      let daySeparator = '';
+      if(dayKey && dayKey !== prevDayKey){
+        daySeparator = `<div class="chat-day-pill" style="text-align:center;margin:14px 0 10px"><span style="display:inline-block;padding:4px 12px;background:rgba(255,255,255,0.08);color:var(--muted);font-size:11.5px;font-weight:600;border-radius:12px;letter-spacing:.3px">${chEsc(chDayLabel(m.at))}</span></div>`;
+        prevDayKey = dayKey;
+      }
       if(m.kind === 'system'){
-        return `<div style="text-align:center;color:var(--muted);font-style:italic;font-size:11.5px;padding:8px;margin:6px 0">${chEsc(m.text || m.author)}<br><span style="font-size:10.5px">${chFormatTime(m.at)}</span></div>`;
+        return daySeparator + `<div style="text-align:center;color:var(--muted);font-style:italic;font-size:11.5px;padding:8px;margin:6px 0">${chEsc(m.text || m.author)}<br><span style="font-size:10.5px">${chFormatTimeOnly(m.at)}</span></div>`;
       }
       const isClient = m.from === 'client';
       const who = isClient ? '👤 Клиент' : ('⚖️ ' + chEsc(m.author || 'Юрист'));
@@ -1782,15 +2354,265 @@
       const bodyHtml = m.is_file && m.file_url
         ? `<a href="${chEsc(m.file_url)}" target="_blank" style="color:var(--gold);font-weight:600;text-decoration:none">📎 ${chEsc(m.file_name || 'файл')}</a>`
         : chEsc(m.text);
-      return `
-        <div style="background:${bgColor};border:1px solid ${borderColor};border-radius:10px;padding:10px 12px;margin:6px 0;max-width:85%;${align};font-size:13px;line-height:1.4">
+      // Цитата reply-to (если есть)
+      let quoteBlock = '';
+      if(m.reply_to_id){
+        const qa = chEsc(m.reply_to_author || '');
+        const qt = chEsc((m.reply_to_text || '').slice(0, 120));
+        if(qa || qt){
+          quoteBlock = `<div style="margin-bottom:6px;padding:6px 8px;background:rgba(255,255,255,0.04);border-left:2px solid var(--muted);border-radius:4px;font-size:11.5px;color:#a8adb8"><b style="color:var(--gold);font-size:10.5px">↩ ${qa}</b><br>${qt}</div>`;
+        }
+      }
+      // Метка ✓ в правом верхнем углу — сообщение не требует ответа.
+      // Только для клиентских (для юриста флаг всё равно 0).
+      const noReplyBadge = (m.no_reply_needed && m.from === 'client')
+        ? `<div title="Не требует ответа" style="position:absolute;top:6px;right:8px;background:rgba(75,189,134,0.25);color:var(--ok);font-size:11px;font-weight:700;padding:2px 6px;border-radius:6px;line-height:1">✓</div>`
+        : '';
+      // Если no_reply_needed=1 — приглушаем визуально, чтобы админ
+      // сразу видел «это уже пройдено, не надо реагировать».
+      const dimStyle = (m.no_reply_needed && m.from === 'client') ? 'opacity:0.65;' : '';
+      return daySeparator + `
+        <div class="msg-row" data-msg-id="${m.id}" style="position:relative;background:${bgColor};border:1px solid ${borderColor};border-radius:10px;padding:10px 12px;margin:6px 0;max-width:85%;${align};font-size:13px;line-height:1.4;cursor:context-menu;${dimStyle}">
           <div style="font-size:10.5px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px">${who}</div>
-          ${bodyHtml}
-          <div style="font-size:10.5px;color:var(--muted);margin-top:4px;text-align:right">${chFormatTime(m.at)}</div>
+          ${quoteBlock}
+          <div class="msg-body-text">${bodyHtml}</div>
+          <div style="font-size:10.5px;color:var(--muted);margin-top:4px;text-align:right">${chFormatTimeOnly(m.at)}</div>
+          ${noReplyBadge}
         </div>
       `;
     }).join('');
+    // Активируем правый клик для контекстного меню (Telegram-style).
+    body.querySelectorAll('.msg-row').forEach(row => {
+      row.addEventListener('contextmenu', (ev) => {
+        ev.preventDefault();
+        const msgId = parseInt(row.dataset.msgId || '0', 10);
+        openContextMenu(msgId, ev.clientX, ev.clientY);
+      });
+    });
   }
+
+  // === Контекстное меню сообщения ===
+  let ctxMsgId = null;
+
+  function openContextMenu(msgId, x, y){
+    ctxMsgId = msgId;
+    const menu = document.getElementById('msg-ctx-menu');
+    const m = lastRenderedMessages.find(x => x.id === msgId);
+    // Edit/Delete показываем только для сообщений от юриста/супервизора,
+    // не от клиента. Клиентские сообщения править нельзя.
+    const isLawyer = m && m.from === 'lawyer';
+    document.getElementById('ctx-edit').style.display = isLawyer ? 'block' : 'none';
+    document.getElementById('ctx-delete').style.display = isLawyer ? 'block' : 'none';
+    // «Не требует ответа» / «Требует ответа» — только для клиентских,
+    // и показываем обратный вариант в зависимости от текущего состояния.
+    const isClient = m && m.from === 'client';
+    const alreadyNoReply = m && m.no_reply_needed;
+    document.getElementById('ctx-mark-noreply').style.display =
+      (isClient && !alreadyNoReply) ? 'block' : 'none';
+    document.getElementById('ctx-unmark-noreply').style.display =
+      (isClient && alreadyNoReply) ? 'block' : 'none';
+    // Позиционирование с учётом краёв окна
+    menu.style.display = 'block';
+    const rect = menu.getBoundingClientRect();
+    const menuW = rect.width || 200;
+    const menuH = rect.height || 180;
+    const maxX = window.innerWidth - menuW - 10;
+    const maxY = window.innerHeight - menuH - 10;
+    menu.style.left = Math.min(x, maxX) + 'px';
+    menu.style.top = Math.min(y, maxY) + 'px';
+  }
+
+  function closeContextMenu(){
+    document.getElementById('msg-ctx-menu').style.display = 'none';
+    ctxMsgId = null;
+  }
+
+  // Клик вне меню или Escape — закрывает
+  document.addEventListener('click', (e) => {
+    const menu = document.getElementById('msg-ctx-menu');
+    if(menu && menu.style.display === 'block' && !menu.contains(e.target)){
+      closeContextMenu();
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if(e.key === 'Escape') closeContextMenu();
+  });
+
+  function ctxReply(){
+    const id = ctxMsgId; closeContextMenu();
+    if(id) setReplyTo(id);
+  }
+  function ctxCopy(){
+    const id = ctxMsgId; closeContextMenu();
+    if(id) copyMessageText(id);
+  }
+  async function ctxEdit(){
+    const id = ctxMsgId; closeContextMenu();
+    if(!id) return;
+    const m = lastRenderedMessages.find(x => x.id === id);
+    if(!m || m.from !== 'lawyer') return;
+    const newText = prompt('Изменить текст сообщения:', m.text || '');
+    if(newText === null || !newText.trim() || newText.trim() === (m.text || '').trim()) return;
+    const pw = getAdminPassword(true);
+    if(!pw) return;
+    const status = document.getElementById('ch-reply-status');
+    status.textContent = 'Сохранение…'; status.style.color = 'var(--muted)';
+    try{
+      const fd = new FormData();
+      fd.set('password', pw);
+      fd.set('message_id', String(id));
+      fd.set('new_text', newText.trim());
+      const res = await fetch('/api/admin/chat/edit', {method:'POST', body: fd});
+      if(res.status === 403){
+        sessionStorage.removeItem('favorit_admin_pw');
+        localStorage.removeItem('favorit_admin_pw');
+        throw new Error('Неверный пароль');
+      }
+      const j = await res.json();
+      if(!res.ok || !j.ok) throw new Error(j.detail || j.error || 'Ошибка');
+      status.textContent = 'Изменено' + (j.bitrix_ok ? ' (клиент + Bitrix)' : ' (только клиент)');
+      status.style.color = 'var(--ok)';
+      const jHist = await api('/chats/' + encodeURIComponent(currentChatEmail) + '?limit=300');
+      renderChatModal(jHist.messages);
+    }catch(e){
+      status.textContent = 'Ошибка: ' + e.message;
+      status.style.color = 'var(--danger)';
+    }
+  }
+  async function ctxDelete(){
+    const id = ctxMsgId; closeContextMenu();
+    if(!id) return;
+    const m = lastRenderedMessages.find(x => x.id === id);
+    if(!m || m.from !== 'lawyer') return;
+    if(!confirm('Удалить это сообщение?\n\nОно исчезнет и у клиента в приложении, и в Bitrix.')) return;
+    const pw = getAdminPassword(true);
+    if(!pw) return;
+    const status = document.getElementById('ch-reply-status');
+    status.textContent = 'Удаление…'; status.style.color = 'var(--muted)';
+    try{
+      const fd = new FormData();
+      fd.set('password', pw);
+      fd.set('message_id', String(id));
+      const res = await fetch('/api/admin/chat/delete', {method:'POST', body: fd});
+      if(res.status === 403){
+        sessionStorage.removeItem('favorit_admin_pw');
+        localStorage.removeItem('favorit_admin_pw');
+        throw new Error('Неверный пароль');
+      }
+      const j = await res.json();
+      if(!res.ok || !j.ok) throw new Error(j.detail || j.error || 'Ошибка');
+      status.textContent = 'Удалено' + (j.bitrix_ok ? ' (клиент + Bitrix)' : ' (только клиент)');
+      status.style.color = 'var(--ok)';
+      const jHist = await api('/chats/' + encodeURIComponent(currentChatEmail) + '?limit=300');
+      renderChatModal(jHist.messages);
+    }catch(e){
+      status.textContent = 'Ошибка: ' + e.message;
+      status.style.color = 'var(--danger)';
+    }
+  }
+  async function ctxForward(){
+    const id = ctxMsgId; closeContextMenu();
+    if(!id) return;
+    const m = lastRenderedMessages.find(x => x.id === id);
+    if(!m) return;
+    const targetEmail = prompt('Email клиента для пересылки:');
+    if(!targetEmail || !targetEmail.trim()) return;
+    const author = document.getElementById('ch-reply-author').value || 'Куратор';
+    const fromWho = m.from === 'client' ? 'клиента' : (m.author || 'юриста');
+    const originalText = m.is_file ? ('📎 ' + (m.file_name || 'файл')) : (m.text || '');
+    const forwardText = `↪ Переслано от ${fromWho}:\n\n${originalText}`;
+    const pw = getAdminPassword(true);
+    if(!pw) return;
+    const status = document.getElementById('ch-reply-status');
+    status.textContent = 'Пересылка…'; status.style.color = 'var(--muted)';
+    try{
+      const fd = new FormData();
+      fd.set('password', pw);
+      fd.set('email', targetEmail.trim().toLowerCase());
+      fd.set('text', forwardText);
+      fd.set('supervisor_name', author);
+      const res = await fetch('/api/admin/chat/reply', {method:'POST', body: fd});
+      if(res.status === 403){
+        sessionStorage.removeItem('favorit_admin_pw');
+        localStorage.removeItem('favorit_admin_pw');
+        throw new Error('Неверный пароль');
+      }
+      const j = await res.json();
+      if(!res.ok || !j.ok) throw new Error(j.detail || j.error || 'Ошибка');
+      status.textContent = `Переслано в ${targetEmail}`;
+      status.style.color = 'var(--ok)';
+    }catch(e){
+      status.textContent = 'Ошибка: ' + e.message;
+      status.style.color = 'var(--danger)';
+    }
+  }
+
+  async function _sendNoReplyToggle(msgId, noReply){
+    const pw = getAdminPassword(true);
+    if(!pw) return false;
+    try{
+      const fd = new FormData();
+      fd.set('password', pw);
+      fd.set('email', currentChatEmail);
+      fd.set('message_id', String(msgId));
+      fd.set('no_reply', noReply ? '1' : '0');
+      const res = await fetch('/api/admin/chat/mark-no-reply', {method:'POST', body: fd});
+      if(res.status === 403){
+        sessionStorage.removeItem('favorit_admin_pw');
+        localStorage.removeItem('favorit_admin_pw');
+        throw new Error('Неверный пароль');
+      }
+      const j = await res.json();
+      if(!res.ok || !j.ok) throw new Error(j.detail || j.error || 'Ошибка');
+      return true;
+    }catch(e){
+      const status = document.getElementById('ch-reply-status');
+      status.textContent = 'Ошибка: ' + e.message;
+      status.style.color = 'var(--danger)';
+      return false;
+    }
+  }
+
+  async function ctxMarkNoReply(){
+    const id = ctxMsgId; closeContextMenu();
+    if(!id) return;
+    const ok = await _sendNoReplyToggle(id, true);
+    if(ok){
+      const status = document.getElementById('ch-reply-status');
+      status.textContent = '✓ Помечено как «не требует ответа»';
+      status.style.color = 'var(--ok)';
+      // Перезагрузим историю чтобы обновилась метка
+      try{
+        const jHist = await api('/chats/' + encodeURIComponent(currentChatEmail) + '?limit=300');
+        renderChatModal(jHist.messages);
+      }catch(_){}
+    }
+  }
+
+  async function ctxUnmarkNoReply(){
+    const id = ctxMsgId; closeContextMenu();
+    if(!id) return;
+    const ok = await _sendNoReplyToggle(id, false);
+    if(ok){
+      const status = document.getElementById('ch-reply-status');
+      status.textContent = 'Метка снята — клиент снова считается ждущим';
+      status.style.color = 'var(--gold)';
+      try{
+        const jHist = await api('/chats/' + encodeURIComponent(currentChatEmail) + '?limit=300');
+        renderChatModal(jHist.messages);
+      }catch(_){}
+    }
+  }
+
+  window.openContextMenu = openContextMenu;
+  window.closeContextMenu = closeContextMenu;
+  window.ctxReply = ctxReply;
+  window.ctxCopy = ctxCopy;
+  window.ctxEdit = ctxEdit;
+  window.ctxDelete = ctxDelete;
+  window.ctxForward = ctxForward;
+  window.ctxMarkNoReply = ctxMarkNoReply;
+  window.ctxUnmarkNoReply = ctxUnmarkNoReply;
 
   checkAuthConfig();
   if(token) showDash();
