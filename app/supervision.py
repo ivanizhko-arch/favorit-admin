@@ -914,3 +914,203 @@ def manager_activity(date_from: str = "", date_to: str = "") -> dict:
             "managers_active": len(managers),
         },
     }
+
+
+def manager_activity_export(date_from: str = "", date_to: str = ""):
+    """Строит Excel-файл (BytesIO) с активностью менеджеров за период.
+
+    Формат: один лист «Активность менеджеров».
+        Менеджер | Сообщений всего | Клиентов уникальных | Дней активен |
+        01.09 | 02.09 | ... | (кол-во сообщений от менеджера за этот день)
+    Внизу строка ИТОГО по каждому столбцу.
+
+    Даты и группировка по дням — в МСК. Учитываем только исходящие от
+    менеджера сообщения (incoming=1) с проставленным manager_bitrix_id.
+    Автоматика и старые несбэкфилленные записи не входят.
+    """
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    today_msk = datetime.now(_MSK).date().isoformat()
+    df = _parse_ymd(date_from) or _parse_ymd(today_msk)
+    dt_to = _parse_ymd(date_to) or df
+    if dt_to < df:
+        df, dt_to = dt_to, df
+    start_utc = df.astimezone(timezone.utc).isoformat(timespec="seconds")
+    end_utc = (dt_to + timedelta(days=1)).astimezone(timezone.utc).isoformat(timespec="seconds")
+
+    # Список дней в диапазоне (MSK). Даже если по дню данных нет — колонка есть.
+    days: list[datetime] = []
+    cur = df
+    while cur <= dt_to:
+        days.append(cur)
+        cur = cur + timedelta(days=1)
+
+    # Забираем все входящие с manager_bitrix_id за период. Группируем в Python:
+    # достаточно быстро на десятках тысяч строк, зато без хитрых timezone-SQL.
+    raw: list = []
+    try:
+        with _conn() as c:
+            raw = c.execute(
+                "SELECT manager_bitrix_id AS mid, created_at, email, author_name "
+                "FROM chat_messages "
+                "WHERE incoming = 1 "
+                "  AND manager_bitrix_id IS NOT NULL "
+                "  AND created_at >= ? AND created_at < ?",
+                (start_utc, end_utc),
+            ).fetchall()
+    except sqlite3.OperationalError as e:
+        log.warning("manager_activity_export: %s", e)
+        raw = []
+
+    # Агрегация в Python.
+    # per_day[mid][day_key] = int (сообщений)
+    # clients[mid] = set(email)
+    # total_msgs[mid] = int
+    # names[mid] = author_name (последний непустой)
+    from collections import defaultdict
+    per_day: dict = defaultdict(lambda: defaultdict(int))
+    clients: dict = defaultdict(set)
+    total_msgs: dict = defaultdict(int)
+    names: dict = {}
+    for r in raw:
+        mid = int(r["mid"])
+        # created_at → MSK date
+        try:
+            s = str(r["created_at"]).replace("Z", "+00:00")
+            dt = datetime.fromisoformat(s)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            day_key = dt.astimezone(_MSK).date().isoformat()
+        except (ValueError, TypeError):
+            continue
+        per_day[mid][day_key] += 1
+        clients[mid].add((r["email"] or "").lower())
+        total_msgs[mid] += 1
+        an = (r["author_name"] or "").strip()
+        if an and mid not in names:
+            names[mid] = an
+
+    # Резолвим имена: снимок стадий → author_name → "ID N"
+    cards = stages.users()
+
+    def _name(mid: int) -> str:
+        card = cards.get(mid, {})
+        return card.get("name") or names.get(mid) or f"ID {mid}"
+
+    # Сортируем менеджеров по убыванию сообщений
+    manager_ids = sorted(total_msgs.keys(), key=lambda x: (-total_msgs[x], _name(x)))
+
+    # Строим workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Активность менеджеров"
+
+    gold_fill = PatternFill(start_color="D7AE5E", end_color="D7AE5E", fill_type="solid")
+    header_font = Font(bold=True, color="1A1A1A", size=11)
+    total_font = Font(bold=True, size=11)
+    total_fill = PatternFill(start_color="F0EAD6", end_color="F0EAD6", fill_type="solid")
+    thin = Side(border_style="thin", color="CCCCCC")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    center = Alignment(horizontal="center", vertical="center")
+    right = Alignment(horizontal="right", vertical="center")
+    left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+    # Заголовок с периодом (сliyaющаяся строка над таблицей)
+    period_label = (df.date().isoformat() if df == dt_to
+                    else f"{df.date().isoformat()} — {dt_to.date().isoformat()}")
+    n_cols = 4 + len(days)
+    ws.cell(row=1, column=1, value=f"Активность менеджеров за {period_label}").font = Font(bold=True, size=13)
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
+
+    # Заголовки колонок (строка 3)
+    header_row = 3
+    headers = ["Менеджер", "Сообщений всего", "Клиентов уникальных", "Дней активен"]
+    headers += [d.date().strftime("%d.%m") for d in days]
+    for col_idx, h in enumerate(headers, start=1):
+        c = ws.cell(row=header_row, column=col_idx, value=h)
+        c.font = header_font
+        c.fill = gold_fill
+        c.alignment = center if col_idx > 1 else left
+        c.border = border
+
+    # Строки менеджеров
+    row_idx = header_row + 1
+    for mid in manager_ids:
+        col = 1
+        ws.cell(row=row_idx, column=col, value=_name(mid)).alignment = left
+        col += 1
+        ws.cell(row=row_idx, column=col, value=total_msgs[mid]).alignment = right
+        col += 1
+        ws.cell(row=row_idx, column=col, value=len(clients[mid])).alignment = right
+        col += 1
+        # Дней активен — сколько дней в периоде было хотя бы 1 сообщение
+        active_days = sum(1 for d in days if per_day[mid].get(d.date().isoformat(), 0) > 0)
+        ws.cell(row=row_idx, column=col, value=active_days).alignment = right
+        col += 1
+        for d in days:
+            v = per_day[mid].get(d.date().isoformat(), 0)
+            cell = ws.cell(row=row_idx, column=col, value=v if v else None)
+            cell.alignment = right
+            col += 1
+        # Границы у всей строки
+        for col_i in range(1, n_cols + 1):
+            ws.cell(row=row_idx, column=col_i).border = border
+        row_idx += 1
+
+    # Пустая строка + ИТОГО
+    if manager_ids:
+        total_row = row_idx + 1
+        ws.cell(row=total_row, column=1, value="ИТОГО").font = total_font
+        ws.cell(row=total_row, column=1).alignment = left
+        ws.cell(row=total_row, column=1).fill = total_fill
+        ws.cell(row=total_row, column=2,
+                value=sum(total_msgs.values())).font = total_font
+        ws.cell(row=total_row, column=2).alignment = right
+        ws.cell(row=total_row, column=2).fill = total_fill
+        # Итого уникальных клиентов по ВСЕМ менеджерам (не сумма строк)
+        all_clients = set()
+        for s in clients.values():
+            all_clients |= s
+        ws.cell(row=total_row, column=3, value=len(all_clients)).font = total_font
+        ws.cell(row=total_row, column=3).alignment = right
+        ws.cell(row=total_row, column=3).fill = total_fill
+        # Дней с активностью — сколько дней у хотя бы одного менеджера
+        days_with_data = sum(1 for d in days
+                             if any(per_day[mid].get(d.date().isoformat(), 0) > 0
+                                    for mid in manager_ids))
+        ws.cell(row=total_row, column=4, value=days_with_data).font = total_font
+        ws.cell(row=total_row, column=4).alignment = right
+        ws.cell(row=total_row, column=4).fill = total_fill
+        # Итого по дням
+        for i, d in enumerate(days):
+            total = sum(per_day[mid].get(d.date().isoformat(), 0) for mid in manager_ids)
+            cell = ws.cell(row=total_row, column=5 + i, value=total if total else None)
+            cell.font = total_font
+            cell.alignment = right
+            cell.fill = total_fill
+        for col_i in range(1, n_cols + 1):
+            ws.cell(row=total_row, column=col_i).border = border
+
+    # Заморозка первой строки заголовков и первой колонки (менеджер)
+    ws.freeze_panes = ws.cell(row=header_row + 1, column=2)
+
+    # Автоширина колонок
+    for col_i in range(1, n_cols + 1):
+        letter = get_column_letter(col_i)
+        if col_i == 1:
+            ws.column_dimensions[letter].width = 28
+        elif col_i in (2, 3, 4):
+            ws.column_dimensions[letter].width = 20
+        else:
+            ws.column_dimensions[letter].width = 8
+
+    ws.row_dimensions[header_row].height = 32
+
+    # Сохраняем в BytesIO
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf, f"manager-activity-{df.date().isoformat()}_{dt_to.date().isoformat()}.xlsx"

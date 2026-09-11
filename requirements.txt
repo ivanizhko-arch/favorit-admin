@@ -6,3 +6,5 @@ PyJWT==2.8.0
 # PostgreSQL — используется через pgshim.py (sqlite3-совместимый API).
 # Основной backend (favorit-app) пишет в PG, admin должен читать оттуда же.
 psycopg2-binary==2.9.9
+# Экспорт статистики в Excel (кнопка «Скачать Excel» на дашборде).
+openpyxl==3.1.5

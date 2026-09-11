@@ -364,6 +364,31 @@ def admin_manager_activity(
     return supervision.manager_activity(date_from=date_from, date_to=date_to)
 
 
+@router.get("/api/manager-activity.xlsx")
+def admin_manager_activity_xlsx(
+    date_from: str = "",
+    date_to: str = "",
+    _: str = Depends(get_admin),
+):
+    """Excel-выгрузка активности менеджеров за период. Один лист:
+    строка на менеджера, колонки по дням, сумма/уникальные клиенты слева."""
+    from fastapi.responses import StreamingResponse
+    from urllib.parse import quote
+    buf, filename = supervision.manager_activity_export(
+        date_from=date_from, date_to=date_to)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            # RFC 5987 — кириллица в имени файла (filename*).
+            "Content-Disposition": (
+                f"attachment; filename=\"{filename}\"; "
+                f"filename*=UTF-8''{quote(filename)}"
+            ),
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Отдел сопровождения: отказы и зависшие дела
 # ---------------------------------------------------------------------------

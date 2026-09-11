@@ -196,6 +196,7 @@
       <button class="btn-ghost" onclick="setActivityPreset('7d')">7 дней</button>
       <button class="btn-ghost" onclick="setActivityPreset('30d')">30 дней</button>
       <button class="btn-gold" onclick="loadManagerActivity()">Показать</button>
+      <button class="btn-ghost" onclick="downloadManagerActivityExcel()" title="Excel-выгрузка за выбранный период">📥 Скачать Excel</button>
     </div>
     <div id="ma-summary"></div>
     <table>
@@ -1020,6 +1021,41 @@
       'Сообщения — все ответы менеджера в чате приложения (текст и файлы отдельно). ' +
       'Автоответы (шаблоны стадий, дежурный автоответ) не учитываются. ' +
       '<b>*</b> Сумма «Клиентов охвачено» по строкам может быть больше итога — один клиент мог общаться с несколькими менеджерами.';
+  }
+
+  // Excel-выгрузка активности за тот же диапазон дат, что в форме.
+  // Используем fetch с Bearer-токеном (авторизация в админке через JWT
+  // в заголовке, а window.open этот токен не передаст) → blob → скачивание.
+  async function downloadManagerActivityExcel(){
+    const from = document.getElementById('ma-from').value;
+    const to = document.getElementById('ma-to').value;
+    const qs = [];
+    if (from) qs.push('date_from=' + encodeURIComponent(from));
+    if (to) qs.push('date_to=' + encodeURIComponent(to));
+    const url = '/admin/api/manager-activity.xlsx' + (qs.length ? '?' + qs.join('&') : '');
+    try {
+      const res = await fetch(url, {headers:{'Authorization':'Bearer '+token}});
+      if (!res.ok) {
+        alert('Не удалось выгрузить: HTTP ' + res.status);
+        return;
+      }
+      const blob = await res.blob();
+      // Имя файла из Content-Disposition (сервер шлёт filename*=UTF-8 для кириллицы)
+      let filename = 'manager-activity.xlsx';
+      const cd = res.headers.get('Content-Disposition') || '';
+      const m = /filename\*=UTF-8''([^;]+)/i.exec(cd) || /filename="?([^";]+)/i.exec(cd);
+      if (m) { try { filename = decodeURIComponent(m[1]); } catch(e) { filename = m[1]; } }
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch (e) {
+      alert('Ошибка выгрузки: ' + (e.message || e));
+    }
   }
 
   // ---- Тренд оценок (inline SVG, без внешних библиотек) ----
