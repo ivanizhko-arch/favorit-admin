@@ -1842,6 +1842,43 @@
            d.toLocaleTimeString('ru-RU', opts);
   }
 
+  // «Ключ дня» по МСК — для группировки сообщений в модалке чата.
+  // Возвращает YYYY-MM-DD. Используем en-CA чтобы получить ISO-формат.
+  function chDayKey(iso){
+    if(!iso) return '';
+    return new Date(iso).toLocaleDateString('en-CA', {timeZone:'Europe/Moscow'});
+  }
+
+  // Человекочитаемая метка дня для плашки-разделителя (Telegram-style).
+  // «Сегодня» / «Вчера» / «12 сентября» / «12 сентября 2024 г.» — если
+  // сообщение из прошлого года, показываем год.
+  function chDayLabel(iso){
+    if(!iso) return '';
+    const msgKey = chDayKey(iso);
+    const now = new Date();
+    const todayKey = now.toLocaleDateString('en-CA', {timeZone:'Europe/Moscow'});
+    const yestKey = new Date(now.getTime() - 24*3600*1000)
+      .toLocaleDateString('en-CA', {timeZone:'Europe/Moscow'});
+    if(msgKey === todayKey) return 'Сегодня';
+    if(msgKey === yestKey) return 'Вчера';
+    const d = new Date(iso);
+    const thisYear = todayKey.slice(0, 4);
+    const msgYear = msgKey.slice(0, 4);
+    const opts = msgYear === thisYear
+      ? {day:'numeric', month:'long', timeZone:'Europe/Moscow'}
+      : {day:'numeric', month:'long', year:'numeric', timeZone:'Europe/Moscow'};
+    return d.toLocaleDateString('ru-RU', opts);
+  }
+
+  // Только время (HH:MM МСК) — используется в модалке чата, где дата
+  // уже показана на плашке-разделителе выше.
+  function chFormatTimeOnly(iso){
+    if(!iso) return '';
+    return new Date(iso).toLocaleTimeString('ru-RU', {
+      hour:'2-digit', minute:'2-digit', timeZone:'Europe/Moscow',
+    });
+  }
+
   function chHotBadge(h){
     if(h < 1) return `${h.toFixed(1)}ч назад`;
     if(h < 24) return `${Math.round(h)}ч назад`;
@@ -2258,9 +2295,20 @@
       body.innerHTML = '<div class="empty">Переписка пуста.</div>';
       return;
     }
+    // Рендерим сообщения последовательно, вставляя между ними плашку-
+    // разделитель дня когда меняется календарная дата по МСК (стиль
+    // Telegram/WhatsApp). Даты не показываем на самих сообщениях —
+    // только время, чтобы не дублировать.
+    let prevDayKey = '';
     body.innerHTML = messages.map(m => {
+      const dayKey = chDayKey(m.at);
+      let daySeparator = '';
+      if(dayKey && dayKey !== prevDayKey){
+        daySeparator = `<div class="chat-day-pill" style="text-align:center;margin:14px 0 10px"><span style="display:inline-block;padding:4px 12px;background:rgba(255,255,255,0.08);color:var(--muted);font-size:11.5px;font-weight:600;border-radius:12px;letter-spacing:.3px">${chEsc(chDayLabel(m.at))}</span></div>`;
+        prevDayKey = dayKey;
+      }
       if(m.kind === 'system'){
-        return `<div style="text-align:center;color:var(--muted);font-style:italic;font-size:11.5px;padding:8px;margin:6px 0">${chEsc(m.text || m.author)}<br><span style="font-size:10.5px">${chFormatTime(m.at)}</span></div>`;
+        return daySeparator + `<div style="text-align:center;color:var(--muted);font-style:italic;font-size:11.5px;padding:8px;margin:6px 0">${chEsc(m.text || m.author)}<br><span style="font-size:10.5px">${chFormatTimeOnly(m.at)}</span></div>`;
       }
       const isClient = m.from === 'client';
       const who = isClient ? '👤 Клиент' : ('⚖️ ' + chEsc(m.author || 'Юрист'));
@@ -2287,12 +2335,12 @@
       // Если no_reply_needed=1 — приглушаем визуально, чтобы админ
       // сразу видел «это уже пройдено, не надо реагировать».
       const dimStyle = (m.no_reply_needed && m.from === 'client') ? 'opacity:0.65;' : '';
-      return `
+      return daySeparator + `
         <div class="msg-row" data-msg-id="${m.id}" style="position:relative;background:${bgColor};border:1px solid ${borderColor};border-radius:10px;padding:10px 12px;margin:6px 0;max-width:85%;${align};font-size:13px;line-height:1.4;cursor:context-menu;${dimStyle}">
           <div style="font-size:10.5px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px">${who}</div>
           ${quoteBlock}
           <div class="msg-body-text">${bodyHtml}</div>
-          <div style="font-size:10.5px;color:var(--muted);margin-top:4px;text-align:right">${chFormatTime(m.at)}</div>
+          <div style="font-size:10.5px;color:var(--muted);margin-top:4px;text-align:right">${chFormatTimeOnly(m.at)}</div>
           ${noReplyBadge}
         </div>
       `;
