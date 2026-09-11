@@ -356,6 +356,15 @@
         <h3 id="ch-modal-title" style="color:var(--gold);font-size:17px;margin-bottom:4px">Чат</h3>
         <div id="ch-modal-sub" class="muted" style="font-size:12px;margin-bottom:20px"></div>
         <div id="ch-modal-body"></div>
+        <!-- Быстрое переключение «Отвечать не нужно» на последнем клиентском
+             сообщении. Плашка появляется когда последний писал клиент —
+             один клик убирает чат из ждущих (как «Silence» в WhatsApp).
+             Скрыта если последнее сообщение от юриста. -->
+        <div id="ch-no-reply-toggle" style="display:none;margin:12px 0 0;text-align:center">
+          <button id="ch-no-reply-btn" onclick="chatToggleNoReply()"
+                  style="background:transparent;border:1px solid var(--line);padding:8px 18px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s">
+          </button>
+        </div>
         <!-- Контекстное меню сообщения (правый клик) — Telegram-style -->
         <div id="msg-ctx-menu" style="display:none;position:fixed;z-index:300;background:var(--ink2);border:1px solid var(--line);border-radius:8px;padding:4px 0;min-width:180px;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-size:13px">
           <div id="ctx-reply" class="ctx-item" onclick="ctxReply()" style="padding:8px 14px;cursor:pointer;color:#e8ebf1">↩&nbsp;&nbsp;Ответить</div>
@@ -2389,7 +2398,81 @@
         openContextMenu(msgId, ev.clientX, ev.clientY);
       });
     });
+    // Обновляем плашку «Отвечать не нужно» под чатом (быстрый toggle
+    // для оператора — как в WhatsApp).
+    updateNoReplyToggle();
   }
+
+  // Ищет ПОСЛЕДНЕЕ клиентское сообщение в чате. Плашка «Отвечать не
+  // нужно» показывается только когда клиент — последний писавший
+  // (то же условие, что и статус «ждёт» в списке чатов).
+  function _lastClientMessage(){
+    const msgs = lastRenderedMessages || [];
+    for(let i = msgs.length - 1; i >= 0; i--){
+      const m = msgs[i];
+      if(m.kind === 'system') continue;
+      // Первое сверху не от клиента — плашку не показываем
+      if(m.from !== 'client') return null;
+      return m;
+    }
+    return null;
+  }
+
+  function updateNoReplyToggle(){
+    const wrap = document.getElementById('ch-no-reply-toggle');
+    const btn = document.getElementById('ch-no-reply-btn');
+    if(!wrap || !btn) return;
+    const last = _lastClientMessage();
+    if(!last){
+      wrap.style.display = 'none';
+      return;
+    }
+    wrap.style.display = 'block';
+    btn.dataset.msgId = String(last.id);
+    if(last.no_reply_needed){
+      // Уже помечено — предлагаем снять
+      btn.innerHTML = '🔔 Требует ответа';
+      btn.style.color = 'var(--muted)';
+      btn.style.borderColor = 'var(--line)';
+      btn.style.background = 'transparent';
+      btn.title = 'Снять пометку — чат снова считается ждущим';
+    } else {
+      // Не помечено — предлагаем пометить (кнопка яркая)
+      btn.innerHTML = '🔕 Отвечать не нужно';
+      btn.style.color = '#000';
+      btn.style.borderColor = 'transparent';
+      btn.style.background = 'var(--gold)';
+      btn.title = 'Убрать чат из ждущих ответа (пометить как ack)';
+    }
+  }
+
+  async function chatToggleNoReply(){
+    const btn = document.getElementById('ch-no-reply-btn');
+    const id = parseInt(btn.dataset.msgId || '0', 10);
+    if(!id) return;
+    const last = _lastClientMessage();
+    if(!last) return;
+    const currentlyMarked = !!last.no_reply_needed;
+    // Оптимистично блокируем кнопку на время запроса
+    btn.disabled = true;
+    btn.style.opacity = '0.6';
+    const ok = await _sendNoReplyToggle(id, !currentlyMarked);
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    if(ok){
+      const status = document.getElementById('ch-reply-status');
+      status.textContent = currentlyMarked
+        ? 'Метка снята — клиент снова считается ждущим'
+        : '✓ Помечено как «не требует ответа»';
+      status.style.color = currentlyMarked ? 'var(--gold)' : 'var(--ok)';
+      // Перезагрузим историю чтобы обновилась метка на сообщении и плашка
+      try{
+        const jHist = await api('/chats/' + encodeURIComponent(currentChatEmail) + '?limit=300');
+        renderChatModal(jHist.messages);
+      }catch(_){}
+    }
+  }
+  window.chatToggleNoReply = chatToggleNoReply;
 
   // === Контекстное меню сообщения ===
   let ctxMsgId = null;
