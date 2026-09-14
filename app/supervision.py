@@ -825,6 +825,71 @@ def _parse_ymd(s):
         return None
 
 
+def _reply_hours_by_manager_id_scoped(start_utc: str, end_utc: str) -> dict:
+    """Среднее время ответа менеджера (в часах) за период, ключ = manager_bitrix_id.
+
+    Логика: для каждого клиента идём по его сообщениям в хронологическом
+    порядке (по всей истории — чтобы клиентское сообщение до окна тоже
+    учитывалось если ответ пришёл в окне). При incoming=0 без no_reply_needed
+    запоминаем время первого «pending» клиентского сообщения. При incoming=1
+    (ответ юриста) с manager_bitrix_id — если это в нашем окне, считаем
+    дельту и относим к mid.
+
+    Ответ учитывается в статистике только если попал в диапазон date_from..date_to.
+    """
+    with _conn() as c:
+        try:
+            msgs = c.execute(
+                "SELECT email, incoming, manager_bitrix_id, created_at, "
+                "COALESCE(no_reply_needed, 0) AS no_reply_needed "
+                "FROM chat_messages ORDER BY email, id"
+            ).fetchall()
+            has_no_reply = True
+        except sqlite3.OperationalError:
+            msgs = c.execute(
+                "SELECT email, incoming, manager_bitrix_id, created_at "
+                "FROM chat_messages ORDER BY email, id"
+            ).fetchall()
+            has_no_reply = False
+
+    times_by_mid: dict = {}
+    pending_by_email: dict = {}  # email → время первого pending клиентского
+
+    for m in msgs:
+        email = m["email"]
+        created_at = _parse_dt(m["created_at"])
+        if not created_at:
+            continue
+        if int(m["incoming"] or 0) == 0:  # клиент написал
+            if has_no_reply and int(m["no_reply_needed"] or 0) == 1:
+                continue
+            if email not in pending_by_email:
+                pending_by_email[email] = created_at
+        else:  # юрист ответил
+            client_at = pending_by_email.pop(email, None)
+            if not client_at or created_at <= client_at:
+                continue
+            # Учитываем ответ только если он попал в окно date_from..date_to
+            created_iso = m["created_at"] or ""
+            if not (start_utc <= created_iso < end_utc):
+                continue
+            mid = m["manager_bitrix_id"]
+            if mid is None:
+                continue
+            hours = (created_at - client_at).total_seconds() / 3600
+            times_by_mid.setdefault(int(mid), []).append(hours)
+
+    out: dict = {}
+    for mid, times in times_by_mid.items():
+        if not times:
+            continue
+        out[mid] = {
+            "avg_hours": round(sum(times) / len(times), 2),
+            "count": len(times),
+        }
+    return out
+
+
 def manager_activity(date_from: str = "", date_to: str = "") -> dict:
     """Активность менеджеров в чатах приложения по дням.
 
@@ -886,6 +951,7 @@ def manager_activity(date_from: str = "", date_to: str = "") -> dict:
         rows = []
 
     cards = stages.users()
+    reply_by_mid = _reply_hours_by_manager_id_scoped(start_utc, end_utc)
     managers = []
     for r in rows:
         mid = int(r["mid"])
@@ -897,11 +963,14 @@ def manager_activity(date_from: str = "", date_to: str = "") -> dict:
         # в снимок не попадают — берём имя из самого сообщения.
         fallback = (r["fallback_name"] or "").strip()
         name = card.get("name") or fallback or f"ID {mid}"
+        reply = reply_by_mid.get(mid)
         managers.append({
             "manager_id": mid,
             "manager_name": name,
             "unique_clients": int(r["unique_clients"]),
             "messages_sent": int(r["messages_sent"]),
+            "avg_reply_hours": reply["avg_hours"] if reply else None,
+            "reply_count": reply["count"] if reply else 0,
         })
 
     return {
@@ -995,6 +1064,7 @@ def manager_activity_export(date_from: str = "", date_to: str = ""):
 
     # Резолвим имена: снимок стадий → author_name → "ID N"
     cards = stages.users()
+    reply_by_mid = _reply_hours_by_manager_id_scoped(start_utc, end_utc)
 
     def _name(mid: int) -> str:
         card = cards.get(mid, {})
@@ -1021,13 +1091,14 @@ def manager_activity_export(date_from: str = "", date_to: str = ""):
     # Заголовок с периодом (сliyaющаяся строка над таблицей)
     period_label = (df.date().isoformat() if df == dt_to
                     else f"{df.date().isoformat()} — {dt_to.date().isoformat()}")
-    n_cols = 4 + len(days)
+    n_cols = 5 + len(days)
     ws.cell(row=1, column=1, value=f"Активность менеджеров за {period_label}").font = Font(bold=True, size=13)
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
 
     # Заголовки колонок (строка 3)
     header_row = 3
-    headers = ["Менеджер", "Сообщений всего", "Клиентов уникальных", "Дней активен"]
+    headers = ["Менеджер", "Сообщений всего", "Клиентов уникальных",
+               "Дней активен", "Ср. время ответа (ч)"]
     headers += [d.date().strftime("%d.%m") for d in days]
     for col_idx, h in enumerate(headers, start=1):
         c = ws.cell(row=header_row, column=col_idx, value=h)
@@ -1049,6 +1120,14 @@ def manager_activity_export(date_from: str = "", date_to: str = ""):
         # Дней активен — сколько дней в периоде было хотя бы 1 сообщение
         active_days = sum(1 for d in days if per_day[mid].get(d.date().isoformat(), 0) > 0)
         ws.cell(row=row_idx, column=col, value=active_days).alignment = right
+        col += 1
+        # Ср. время ответа (в часах). None → пустая ячейка.
+        rt = reply_by_mid.get(mid)
+        rt_val = rt["avg_hours"] if rt else None
+        rt_cell = ws.cell(row=row_idx, column=col, value=rt_val)
+        rt_cell.alignment = right
+        if rt_val is not None:
+            rt_cell.number_format = "0.00"
         col += 1
         for d in days:
             v = per_day[mid].get(d.date().isoformat(), 0)
@@ -1084,10 +1163,21 @@ def manager_activity_export(date_from: str = "", date_to: str = ""):
         ws.cell(row=total_row, column=4, value=days_with_data).font = total_font
         ws.cell(row=total_row, column=4).alignment = right
         ws.cell(row=total_row, column=4).fill = total_fill
-        # Итого по дням
+        # Ср. время ответа — среднее по менеджерам (у кого есть значение)
+        overall_avgs = [reply_by_mid[m]["avg_hours"] for m in manager_ids
+                        if reply_by_mid.get(m)]
+        rt_overall = (round(sum(overall_avgs) / len(overall_avgs), 2)
+                      if overall_avgs else None)
+        rt_total_cell = ws.cell(row=total_row, column=5, value=rt_overall)
+        rt_total_cell.font = total_font
+        rt_total_cell.alignment = right
+        rt_total_cell.fill = total_fill
+        if rt_overall is not None:
+            rt_total_cell.number_format = "0.00"
+        # Итого по дням (сместились на 1 колонку вправо из-за Ср. времени)
         for i, d in enumerate(days):
             total = sum(per_day[mid].get(d.date().isoformat(), 0) for mid in manager_ids)
-            cell = ws.cell(row=total_row, column=5 + i, value=total if total else None)
+            cell = ws.cell(row=total_row, column=6 + i, value=total if total else None)
             cell.font = total_font
             cell.alignment = right
             cell.fill = total_fill
@@ -1102,7 +1192,7 @@ def manager_activity_export(date_from: str = "", date_to: str = ""):
         letter = get_column_letter(col_i)
         if col_i == 1:
             ws.column_dimensions[letter].width = 28
-        elif col_i in (2, 3, 4):
+        elif col_i in (2, 3, 4, 5):
             ws.column_dimensions[letter].width = 20
         else:
             ws.column_dimensions[letter].width = 8

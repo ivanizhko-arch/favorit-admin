@@ -204,8 +204,9 @@
         <th>Менеджер</th>
         <th style="text-align:right" title="Уникальных клиентов, которым менеджер написал хотя бы одно сообщение">Клиентов</th>
         <th style="text-align:right" title="Всего сообщений от менеджера клиенту">Сообщений</th>
+        <th style="text-align:right" title="Среднее время от сообщения клиента до ответа менеджера (только ответы, попавшие в выбранный период)">Ср. время ответа</th>
       </tr></thead>
-      <tbody id="ma-rows"><tr><td colspan="3" class="empty">Выберите период и нажмите «Показать»</td></tr></tbody>
+      <tbody id="ma-rows"><tr><td colspan="4" class="empty">Выберите период и нажмите «Показать»</td></tr></tbody>
     </table>
     <p class="muted" id="ma-note" style="margin-top:10px"></p>
 
@@ -1015,14 +1016,22 @@
 
     const t = document.getElementById('ma-rows');
     if (!d.managers.length) {
-      t.innerHTML = '<tr><td colspan="3" class="empty">За выбранный период менеджеры клиентам не писали</td></tr>';
+      t.innerHTML = '<tr><td colspan="4" class="empty">За выбранный период менеджеры клиентам не писали</td></tr>';
       return;
     }
+    // Форматтер: <1ч → минуты, иначе часы. `—` если ответов не было в окне.
+    const fmtReply = h => h == null ? '<span class="muted">—</span>' :
+      (h < 1 ? `<b>${Math.round(h * 60)} мин</b>` : `<b>${esc(h)} ч</b>`);
+    const replyClass = h => h == null ? '' : (h > 24 ? 'due-late' : (h > 8 ? 'b-gold' : ''));
     t.innerHTML = d.managers.map(m => `
       <tr>
         <td>${esc(m.manager_name)}</td>
         <td style="text-align:right"><b>${esc(m.unique_clients)}</b></td>
         <td style="text-align:right"><b>${esc(m.messages_sent)}</b></td>
+        <td style="text-align:right" class="${replyClass(m.avg_reply_hours)}">
+          ${fmtReply(m.avg_reply_hours)}
+          ${m.reply_count ? `<div class="muted" style="font-size:11px">${esc(m.reply_count)} ответов</div>` : ''}
+        </td>
       </tr>`).join('');
 
     document.getElementById('ma-note').innerHTML =
