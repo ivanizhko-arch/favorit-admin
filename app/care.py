@@ -16,7 +16,7 @@ from urllib.parse import quote
 from . import db
 from .security import get_admin
 
-router = APIRouter(prefix="/api/care", tags=["care"])
+router = APIRouter(prefix="/admin/api/care", tags=["care"])
 
 _MSK = timezone(timedelta(hours=3))
 
