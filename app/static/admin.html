@@ -147,6 +147,8 @@
               aria-controls="p-chats">Чаты</button>
       <button type="button" role="tab" data-tab="quality" aria-selected="false"
               aria-controls="p-quality">Качество</button>
+      <button type="button" role="tab" data-tab="care" aria-selected="false"
+              aria-controls="p-care">Служба заботы <span id="care-badge" class="badge hidden"></span></button>
     </div>
 
     <!-- ВКЛАДКА: ДАШБОРД -->
@@ -558,6 +560,45 @@
 
     </section>
 
+    <!-- ВКЛАДКА: СЛУЖБА ЗАБОТЫ -->
+    <section class="panel hidden" id="p-care" role="tabpanel">
+      <div class="section-title">🛟 Служба заботы</div>
+      <p class="hint">Обращения клиентов из раздела «Профиль → Служба заботы» в приложении. По клику — все обращения одного клиента в одной ветке.</p>
+
+      <div class="filters">
+        <label>С <input type="date" id="care-df"></label>
+        <label>По <input type="date" id="care-dt"></label>
+        <button class="btn-ghost" onclick="loadCare()">Обновить</button>
+        <button class="btn-gold" onclick="exportCareXlsx()">📊 Скачать Excel</button>
+      </div>
+
+      <table id="care-tbl">
+        <thead><tr>
+          <th>Клиент</th>
+          <th>Телефон</th>
+          <th>Менеджер</th>
+          <th>Обращений</th>
+          <th>Последнее</th>
+        </tr></thead>
+        <tbody id="care-tbody"></tbody>
+      </table>
+      <div id="care-empty" class="muted hidden" style="padding:20px 0;text-align:center">Пока нет обращений.</div>
+    </section>
+
+  </div>
+</div>
+
+<!-- Модалка треда обращений одного клиента -->
+<div id="care-modal" class="hidden" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:200;padding:40px 20px;overflow:auto" onclick="if(event.target===this)closeCareModal()">
+  <div style="max-width:720px;margin:0 auto;background:var(--ink2);border:1px solid var(--line);border-radius:16px;padding:22px 24px 26px">
+    <button onclick="closeCareModal()" style="float:right;background:transparent;color:var(--muted);font-size:24px;padding:0 6px;border-radius:6px;line-height:1">×</button>
+    <h3 id="care-modal-title" style="color:var(--gold);font-size:17px;margin-bottom:4px">Обращения клиента</h3>
+    <div id="care-modal-sub" class="muted" style="font-size:12px;margin-bottom:20px"></div>
+    <div id="care-modal-thread" style="max-height:60vh;overflow:auto"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;padding-top:14px;margin-top:14px;border-top:1px solid var(--line)">
+      <button class="btn-ghost" onclick="closeCareModal()">Закрыть</button>
+      <button class="btn-gold" id="care-mark-seen-btn" onclick="markCareSeen()">Пометить прочитанными</button>
+    </div>
   </div>
 </div>
 
@@ -675,6 +716,7 @@
     chats:     () => { loadChats(); startChatsAutoRefresh(); },
     quality:   () => { loadQuality(); loadNps(); loadSupervision();
                        loadRefusals(); loadStuck(); loadComplaints(); },
+    care:      () => { loadCare(); },
   };
   const TAB_NAMES = Object.keys(TAB_LOADERS);
   const tabLoaded = {};
@@ -2705,6 +2747,134 @@
   window.ctxForward = ctxForward;
   window.ctxMarkNoReply = ctxMarkNoReply;
   window.ctxUnmarkNoReply = ctxUnmarkNoReply;
+
+  // ---- Служба заботы ----
+  let careCurrentEmail = '';
+
+  async function loadCare(){
+    try{
+      const j = await api('/care/clients');
+      const items = j.items || [];
+      const tbody = document.getElementById('care-tbody');
+      const empty = document.getElementById('care-empty');
+      if(items.length === 0){
+        tbody.innerHTML = '';
+        empty.classList.remove('hidden');
+      } else {
+        empty.classList.add('hidden');
+        tbody.innerHTML = items.map(it => {
+          const unseen = Number(it.unseen || 0);
+          const badge = unseen > 0
+            ? ` <span class="badge" style="background:#e15b5b;color:#fff">${unseen} новых</span>`
+            : '';
+          const name = esc(it.client_name || it.email);
+          const phone = it.client_phone ? fmtPhone(it.client_phone) : '—';
+          const mgr = esc(it.manager_name || '—');
+          const total = esc(it.total);
+          const last = when(it.last_at);
+          const emailAttr = jsq(it.email);
+          return `<tr onclick="openCareModal('${emailAttr}')" style="cursor:pointer">
+            <td><b>${name}</b> ${badge}<br><span class="muted" style="font-size:11px">${esc(it.email)}</span></td>
+            <td>${phone}</td>
+            <td>${mgr}</td>
+            <td>${total}</td>
+            <td>${last}</td>
+          </tr>`;
+        }).join('');
+      }
+      updateCareBadge();
+    }catch(e){ console.error('loadCare', e); }
+  }
+
+  async function updateCareBadge(){
+    try{
+      const j = await api('/care/unseen-count');
+      const n = Number(j.unseen || 0);
+      const b = document.getElementById('care-badge');
+      if(n > 0){
+        b.textContent = n;
+        b.style.background = '#e15b5b';
+        b.style.color = '#fff';
+        b.classList.remove('hidden');
+      } else {
+        b.classList.add('hidden');
+      }
+    }catch(_){}
+  }
+
+  async function openCareModal(email){
+    careCurrentEmail = email;
+    try{
+      const j = await api('/care/client/' + encodeURIComponent(email));
+      const first = (j.items || [])[0] || {};
+      document.getElementById('care-modal-title').textContent =
+        first.client_name || email;
+      const parts = [esc(email)];
+      if(first.client_phone) parts.push(fmtPhone(first.client_phone));
+      if(first.manager_name) parts.push('менеджер: ' + esc(first.manager_name));
+      if(first.deal_id) parts.push('сделка #' + esc(first.deal_id));
+      document.getElementById('care-modal-sub').innerHTML = parts.join(' · ');
+      document.getElementById('care-modal-thread').innerHTML =
+        (j.items || []).map(m => {
+          const isNew = !m.seen;
+          const box = isNew
+            ? 'background:#2a1f18;border-left:3px solid #e15b5b'
+            : 'background:#1a1c24;border-left:3px solid #23252e';
+          const dot = isNew
+            ? ' <span class="badge" style="background:#e15b5b;color:#fff;font-size:10px;padding:2px 6px">новое</span>'
+            : '';
+          return `<div style="${box};padding:10px 14px;margin-bottom:8px;border-radius:8px">
+            <div class="muted" style="font-size:11px;margin-bottom:6px">${when(m.created_at)}${dot}</div>
+            <div style="white-space:pre-wrap;font-size:13.5px;line-height:1.5">${esc(m.text)}</div>
+          </div>`;
+        }).join('');
+      document.getElementById('care-modal').classList.remove('hidden');
+    }catch(e){ console.error('openCareModal', e); }
+  }
+
+  function closeCareModal(){
+    document.getElementById('care-modal').classList.add('hidden');
+    careCurrentEmail = '';
+  }
+
+  async function markCareSeen(){
+    if(!careCurrentEmail) return;
+    try{
+      await api('/care/client/' + encodeURIComponent(careCurrentEmail) +
+                '/mark-seen', {method: 'POST'});
+      closeCareModal();
+      loadCare();
+    }catch(e){ console.error('markCareSeen', e); }
+  }
+
+  async function exportCareXlsx(){
+    const df = document.getElementById('care-df').value;
+    const dt = document.getElementById('care-dt').value;
+    const qs = new URLSearchParams();
+    if(df) qs.set('date_from', df);
+    if(dt) qs.set('date_to', dt);
+    const url = API + '/care/export.xlsx' + (qs.toString() ? '?' + qs : '');
+    try{
+      const res = await fetch(url, {headers:{'Authorization':'Bearer '+token}});
+      if(!res.ok){ alert('Ошибка выгрузки: '+res.status); return; }
+      const blob = await res.blob();
+      const cd = res.headers.get('Content-Disposition') || '';
+      const m = cd.match(/filename\*=UTF-8''([^;]+)/);
+      const filename = m ? decodeURIComponent(m[1]) : 'care.xlsx';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }catch(e){ alert('Ошибка выгрузки: '+e); }
+  }
+
+  window.loadCare = loadCare;
+  window.openCareModal = openCareModal;
+  window.closeCareModal = closeCareModal;
+  window.markCareSeen = markCareSeen;
+  window.exportCareXlsx = exportCareXlsx;
 
   checkAuthConfig();
   if(token) showDash();
